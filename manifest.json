@@ -1,0 +1,15 @@
+{
+  "name": "StockPro - นับสต๊อก",
+  "short_name": "StockPro",
+  "description": "แอพนับสต๊อก รับเข้า/ตัดออก สรุปรายเดือน ใช้ได้ออฟไลน์",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0e0e0f",
+  "theme_color": "#0e0e0f",
+  "lang": "th",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
