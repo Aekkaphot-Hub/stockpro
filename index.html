@@ -179,6 +179,9 @@ th,td{padding:9px 6px;text-align:left;border-bottom:1px solid var(--line)}
 th{color:var(--mu);font-weight:600;font-size:12px}
 td.n,th.n{text-align:right}
 .hint{font-size:12px;color:var(--mu);margin-top:6px}
+#gate{position:fixed;inset:0;z-index:150;background:radial-gradient(circle at 50% 0%,#3a1a00,#0e0e0f 62%);display:grid;place-items:center;padding:20px;overflow:auto}
+.gbox{width:100%;max-width:380px}
+#sync{margin-left:4px;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -188,6 +191,7 @@ td.n,th.n{text-align:right}
     <header class="top">
       <div class="logo" id="hlogo"></div>
       <div class="brand">StockPro<small id="shop"></small></div>
+      <span id="sync" class="badge gry"></span>
       <div class="sp"></div>
       <button class="iconbtn" onclick="openSettings()" aria-label="ตั้งค่า" id="gearbtn"></button>
     </header>
@@ -228,8 +232,11 @@ const ic=(n,s)=>`<svg class="ic" viewBox="0 0 24 24"${s?` style="font-size:${s}p
 const KEY='stockpro_v1';
 function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&Array.isArray(d.products))return Object.assign({movements:[],counts:[],draft:null,settings:{shopName:'ร้านของฉัน',user:'ฉัน'}},d)}catch(e){}
   return {products:[],movements:[],counts:[],draft:null,settings:{shopName:'ร้านของฉัน',user:'ฉัน'}}}
-let S=load();
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast('บันทึกไม่ได้: พื้นที่เก็บข้อมูลเต็ม (ลองลดขนาดรูป)','err')}}
+/* S = ข้อมูลที่ซิงก์จาก Firebase (อัปเดตจาก onSnapshot) / ข้อมูลเฉพาะเครื่อง (ใบนับที่ยังไม่เสร็จ, ชื่อผู้ใช้) เก็บใน LocalStorage */
+const LKEY='stockpro_local';
+let L={};try{L=JSON.parse(localStorage.getItem(LKEY))||{}}catch(e){}
+let S={products:[],movements:[],counts:[],draft:L.draft||null,role:'staff',settings:{shopName:'ร้านของฉัน',user:L.user||'ฉัน'}};
+function save(){try{localStorage.setItem(LKEY,JSON.stringify({draft:S.draft,user:S.settings.user,shopId:L.shopId,uid:L.uid,migrated:L.migrated}))}catch(e){}}
 const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -244,10 +251,15 @@ const TYPES={in:{n:'รับเข้า',c:'#ff7a00',k:'in',i:'down'},out:{n:'
 const COLORS=['#ff7a00','#f6f6f6','#ffb347','#7a7a80','#c25a00','#ffd9a8','#4a4a4f','#ff9d3a'];
 
 /* เปลี่ยนจำนวนสต๊อกทุกครั้งต้องผ่านที่นี่ เพื่อบันทึกประวัติ */
-function applyMovement(pid,type,delta,reason,ts){
+function applyMovement(pid,type,delta,reason,ts,wb){
   const p=P(pid);if(!p||!delta)return;
+  const own=!wb;wb=wb||mkBatch();
   p.qty=Math.round((p.qty+delta)*1000)/1000;
-  S.movements.push({id:uid('m'),ts:ts||Date.now(),productId:pid,type,qty:delta,after:p.qty,reason:reason||'',user:S.settings.user||''});
+  const mid=uid('m'),m={ts:ts||Date.now(),productId:pid,type,qty:delta,after:p.qty,reason:reason||'',user:S.settings.user||''};
+  S.movements.push(Object.assign({id:mid},m));
+  wb.set(MR(mid),m);                              // บันทึกประวัติ
+  wb.update(PR(pid),{qty:FS.increment(delta)});   // increment: หลายเครื่องแก้พร้อมกัน/ออฟไลน์ ยอดจะบวกรวมถูกต้อง
+  if(own)wb.commit().catch(wErr);
 }
 
 /* ============ UI ช่วยเหลือ ============ */
@@ -310,7 +322,10 @@ function renderNav(){
   $('#hlogo').innerHTML=ic('box',24);$('#gearbtn').innerHTML=ic('gear');$('#shop').textContent=S.settings.shopName;
 }
 function go(t){tab=t;render()}
-function render(){renderNav();({products:vProducts,move:vMove,count:vCount,report:vReport})[tab]();window.scrollTo(0,0)}
+function render(keep){if(!shopId||!ready)return;renderNav();({products:vProducts,move:vMove,count:vCount,report:vReport})[tab]();if(!keep)window.scrollTo(0,0)}
+/* วาดใหม่เมื่อข้อมูลจากเครื่องอื่นเข้ามา — ข้ามถ้าผู้ใช้กำลังพิมพ์อยู่ */
+function refresh(){const a=document.activeElement;if(a&&a.closest&&a.closest('#view')&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)){dirty=true;return}dirty=false;render(true)}
+document.addEventListener('focusout',()=>{if(dirty)setTimeout(refresh,150)});
 
 /* ============ 1) สินค้า ============ */
 let pq='';
@@ -340,7 +355,7 @@ function editProduct(id,pre){
   <label>บาร์โค้ด / QR</label><div class="row"><input id="fb" value="${esc(p.barcode)}" inputmode="numeric"><button class="btn sm" onclick="scan(c=>$('#fb').value=c)">${ic('scan')}สแกน</button></div>
   <div class="grid2"><div><label>ราคาทุน (บาท)</label><input id="fcost" type="number" inputmode="decimal" value="${p.cost}"></div><div><label>ราคาขาย (บาท)</label><input id="fprice" type="number" inputmode="decimal" value="${p.price}"></div></div>
   <div class="grid2"><div><label>${id?'คงเหลือ (แก้ผ่านเมนูรับเข้า/ตัดออก/นับสต๊อก)':'จำนวนเริ่มต้น'}</label><input id="fq" type="number" inputmode="numeric" value="${p.qty}" ${id?'disabled':''}></div><div><label>แจ้งเตือนเมื่อเหลือ ≤</label><input id="fr" type="number" inputmode="numeric" value="${p.reorder}"></div></div>
-  <div class="row" style="margin-top:18px">${id?`<button class="btn red" id="fdel" style="padding:12px 14px">${ic('trash')}</button>`:''}<button class="btn block" id="fsave">บันทึก</button></div>`);
+  <div class="row" style="margin-top:18px">${id&&S.role==='owner'?`<button class="btn red" id="fdel" style="padding:12px 14px">${ic('trash')}</button>`:''}<button class="btn block" id="fsave">บันทึก</button></div>`);
   ov.querySelector('#pfile').onchange=async e=>{const f=e.target.files[0];if(!f)return;img=await resizeImg(f);const t=ov.querySelector('#pimg');t.style.backgroundImage=`url(${img})`;t.innerHTML=''};
   ov.querySelector('#fsave').onclick=()=>{
     const name=ov.querySelector('#fn').value.trim();if(!name)return toast('กรุณาใส่ชื่อสินค้า','err');
@@ -348,11 +363,12 @@ function editProduct(id,pre){
     if(sku&&S.products.some(x=>x.id!==id&&x.sku.toLowerCase()===sku.toLowerCase()))return toast('SKU นี้มีอยู่แล้ว','err');
     if(barcode&&S.products.some(x=>x.id!==id&&x.barcode===barcode))return toast('บาร์โค้ดนี้มีอยู่แล้ว','err');
     const d={name,sku,barcode,cat:ov.querySelector('#fc').value.trim(),cost:num(ov.querySelector('#fcost').value),price:num(ov.querySelector('#fprice').value),reorder:num(ov.querySelector('#fr').value),img};
-    if(id)Object.assign(P(id),d);
-    else{const np=Object.assign({id:uid('p'),qty:0},d);S.products.push(np);const q=num(ov.querySelector('#fq').value);if(q>0)applyMovement(np.id,'in',q,'ยอดยกมา')}
-    save();closeModal(ov);toast('บันทึกแล้ว');render();
+    const wb=mkBatch();
+    if(id){Object.assign(P(id),d);wb.update(PR(id),strip(d))}
+    else{const np=Object.assign({id:uid('p'),qty:0},d);S.products.push(np);wb.set(PR(np.id),strip(np));const q=num(ov.querySelector('#fq').value);if(q>0)applyMovement(np.id,'in',q,'ยอดยกมา',null,wb)}
+    wb.commit().catch(wErr);closeModal(ov);toast('บันทึกแล้ว');render();
   };
-  if(id)ov.querySelector('#fdel').onclick=()=>confirmBox(`ลบ "<b>${esc(p.name)}</b>" ? ประวัติเก่าของสินค้านี้จะยังอยู่`,()=>{S.products=S.products.filter(x=>x.id!==id);save();closeModal(ov);toast('ลบแล้ว');render()},'ลบ');
+  if(id&&S.role==='owner')ov.querySelector('#fdel').onclick=()=>confirmBox(`ลบ "<b>${esc(p.name)}</b>" ? ประวัติเก่าของสินค้านี้จะยังอยู่`,()=>{S.products=S.products.filter(x=>x.id!==id);FS.deleteDoc(PR(id)).catch(wErr);closeModal(ov);toast('ลบแล้ว');render()},'ลบ');
 }
 function resizeImg(file){return new Promise(res=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const m=260,k=Math.min(1,m/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);res(c.toDataURL('image/jpeg',.72))};im.src=r.result};r.readAsDataURL(file)})}
 
@@ -390,7 +406,7 @@ function moveDlg(mode){
         upd(mq.value);
         if(mode==='out'&&q>p.qty)return confirmBox(`ตัดออก ${q} แต่คงเหลือเพียง ${p.qty} (จะติดลบ) ต้องการทำต่อหรือไม่?`,go2,'ทำต่อ');
         go2();
-        function go2(){const r=REASONS[mode][ri];applyMovement(pid,r[1],(mode==='in'?1:-1)*q,r[0]);save();closeModal(ov);toast(`${mode==='in'?'รับเข้า':'ตัดออก'} ${q} ชิ้น แล้ว`);render()}
+        function go2(){const r=REASONS[mode][ri];applyMovement(pid,r[1],(mode==='in'?1:-1)*q,r[0]);closeModal(ov);toast(`${mode==='in'?'รับเข้า':'ตัดออก'} ${q} ชิ้น แล้ว`);render()}
       };
     }else{
       const fill=()=>{const l=S.products.filter(x=>matchP(x,search)).slice(0,40);
@@ -457,10 +473,12 @@ function reviewCount(){
     <div class="grid2" style="margin-top:14px"><button class="btn ghost" id="cs0">บันทึกอย่างเดียว</button><button class="btn" id="cs1" ${diff.length?'':'disabled style="opacity:.5"'}>ปรับยอดให้ตรง</button></div>
     <div class="hint">"ปรับยอดให้ตรง" จะแก้จำนวนในระบบให้เท่ากับที่นับจริง และบันทึกในประวัติ ณ เวลา ${fmtDT(d.countedAt)}</div>`);
   const fin=apply=>{
-    if(apply)diff.forEach(i=>applyMovement(i.productId,'adjust',i.counted-i.system,'นับสต๊อก: '+d.name,d.countedAt));
-    S.counts.push({id:d.id,name:d.name,countedAt:d.countedAt,counter:d.counter,items,applied:apply});
+    const wb=mkBatch();
+    if(apply)diff.forEach(i=>applyMovement(i.productId,'adjust',i.counted-i.system,'นับสต๊อก: '+d.name,d.countedAt,wb));
+    const rec={id:d.id,name:d.name,countedAt:d.countedAt,counter:d.counter,items,applied:apply};
+    S.counts.push(rec);wb.set(CR(d.id),strip(rec));wb.commit().catch(wErr);
     S.draft=null;save();closeModal(ov);toast(apply?'ปรับยอดเรียบร้อย':'บันทึกรอบนับแล้ว');render();
-    setTimeout(()=>confirmBox('ส่งผลการนับนี้ไปที่ LINE เลยไหม?',()=>lineDlg('count',S.counts[S.counts.length-1]),'ส่ง LINE'),300);
+    setTimeout(()=>confirmBox('ส่งผลการนับนี้ไปที่ LINE เลยไหม?',()=>lineDlg('count',rec),'ส่ง LINE'),300);
   };
   ov.querySelector('#cs0').onclick=()=>fin(false);ov.querySelector('#cs1').onclick=()=>diff.length&&fin(true);
 }
@@ -585,12 +603,12 @@ function importCSV(text){
   const rows=parseCSV(text);if(rows.length<2)return toast('ไฟล์ว่างหรือรูปแบบไม่ถูกต้อง','err');
   const h=rows[0].map(x=>x.trim().toLowerCase()),ix=k=>h.indexOf(k);
   if(ix('name')<0)return toast('ต้องมีคอลัมน์ name','err');
-  let add=0,upd=0;
+  let add=0,upd=0;const wb=mkBatch();
   rows.slice(1).forEach(r=>{const g=k=>ix(k)>=0?(r[ix(k)]||'').trim():'';const name=g('name');if(!name)return;
     const sku=g('sku'),ex=sku&&S.products.find(p=>p.sku.toLowerCase()===sku.toLowerCase());
     const d={name,sku,barcode:g('barcode'),cat:g('cat'),cost:num(g('cost')),price:num(g('price')),reorder:g('reorder')===''?5:num(g('reorder'))};
-    if(ex){Object.assign(ex,d);upd++}else{const np=Object.assign({id:uid('p'),qty:0,img:''},d);S.products.push(np);const q=num(g('qty'));if(q>0)applyMovement(np.id,'in',q,'นำเข้าจากไฟล์');add++}});
-  save();toast(`เพิ่ม ${add} · อัปเดต ${upd} รายการ`);render();
+    if(ex){Object.assign(ex,d);wb.update(PR(ex.id),strip(d));upd++}else{const np=Object.assign({id:uid('p'),qty:0,img:''},d);S.products.push(np);wb.set(PR(np.id),strip(np));const q=num(g('qty'));if(q>0)applyMovement(np.id,'in',q,'นำเข้าจากไฟล์',null,wb);add++}});
+  wb.commit().catch(wErr);toast(`เพิ่ม ${add} · อัปเดต ${upd} รายการ`);render();
 }
 function openSettings(){
   const ov=modal(`<h3>${ic('gear')}ตั้งค่า${closeBtn}</h3>
@@ -604,24 +622,122 @@ function openSettings(){
   <b>สำรอง / กู้คืนข้อมูลทั้งหมด</b>
   <div class="grid2" style="margin-top:10px"><button class="btn ghost sm" onclick="download('stockpro-backup-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(S),'application/json')">${ic('dl')}สำรองข้อมูล</button><button class="btn ghost sm" onclick="document.getElementById('rsf').click()">${ic('ul')}กู้คืนข้อมูล</button></div>
   <input type="file" id="rsf" accept=".json,application/json" style="display:none">
-  <div class="hint">ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น (ไม่ส่งออกอินเทอร์เน็ต) ควรสำรองเป็นระยะ และการล้างข้อมูลเบราว์เซอร์จะทำให้ข้อมูลหาย</div>
-  <button class="btn red block sm" style="margin-top:14px" id="rst">${ic('trash')}ล้างข้อมูลทั้งหมด</button>`);
-  ov.querySelector('#ss').onclick=()=>{S.settings.shopName=ov.querySelector('#sn').value.trim()||'ร้านของฉัน';S.settings.user=ov.querySelector('#su').value.trim()||'ฉัน';save();closeModal(ov);toast('บันทึกแล้ว');render()};
+  <div class="hint">ข้อมูลซิงก์ผ่าน Firebase ทุกเครื่องที่ล็อกอินร้านเดียวกัน ออฟไลน์ได้และจะซิงก์เองเมื่อมีเน็ต แนะนำให้สำรองไฟล์ไว้เป็นระยะ (การกู้คืนจะรวมกับข้อมูลที่มีอยู่)</div>
+  ${load().products.length?`<button class="btn ghost sm block" style="margin-top:10px" id="lg">ย้ายข้อมูลเดิมในเครื่องนี้ขึ้นระบบกลาง</button>`:''}
+  <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+  <b>บัญชีและการซิงก์</b>
+  <div class="muted" style="font-size:13px;margin-top:6px">${esc(user?(user.email||user.displayName||''):'')} · ${S.role==='owner'?'เจ้าของร้าน':'พนักงาน'}</div>
+  ${S.role==='owner'?`<label>รหัสร้าน (ส่งให้พนักงานเพื่อเข้าร่วม — อย่าแชร์ให้คนนอก)</label><div class="row"><input id="sid" readonly value="${esc(shopId)}"><button class="btn sm" id="scp">${ic('copy')}</button></div>`:''}
+  <button class="btn red block sm" style="margin-top:14px" id="lo">ออกจากระบบ</button>`);
+  ov.querySelector('#ss').onclick=()=>{const n=ov.querySelector('#sn').value.trim();S.settings.user=ov.querySelector('#su').value.trim()||'ฉัน';save();
+    if(n&&n!==S.settings.shopName){if(S.role==='owner')FS.updateDoc(FS.doc(db,'shops',shopId),{name:n}).catch(wErr);else toast('เฉพาะเจ้าของร้านเปลี่ยนชื่อร้านได้','err')}
+    closeModal(ov);toast('บันทึกแล้ว');render()};
   ov.querySelector('#imf').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{closeModal(ov);importCSV(r.result)};r.readAsText(f,'UTF-8')};
-  ov.querySelector('#rsf').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.products))throw 0;confirmBox('กู้คืนจะแทนที่ข้อมูลปัจจุบันทั้งหมด',()=>{S=Object.assign({movements:[],counts:[],draft:null,settings:{shopName:'ร้านของฉัน',user:'ฉัน'}},d);save();closeModal(ov);toast('กู้คืนแล้ว');render()},'กู้คืน')}catch(x){toast('ไฟล์ไม่ถูกต้อง','err')}};r.readAsText(f)};
-  ov.querySelector('#rst').onclick=()=>confirmBox('ลบข้อมูลสินค้า ประวัติ และรอบนับทั้งหมด? ย้อนกลับไม่ได้ (แนะนำให้สำรองก่อน)',()=>{S={products:[],movements:[],counts:[],draft:null,settings:S.settings};save();closeModal(ov);render()},'ลบทั้งหมด');
+  ov.querySelector('#rsf').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.products))throw 0;confirmBox('นำเข้าไฟล์สำรองขึ้นระบบกลาง: สินค้ารหัสเดียวกันจะถูกเขียนทับ ส่วนประวัติที่มีอยู่แล้วจะข้าม',()=>{importData(d).then(()=>toast('นำเข้าแล้ว')).catch(wErr);closeModal(ov)},'นำเข้า')}catch(x){toast('ไฟล์ไม่ถูกต้อง','err')}};r.readAsText(f)};
+  ov.querySelector('#lo').onclick=()=>confirmBox('ออกจากระบบบนเครื่องนี้? (ข้อมูลในระบบกลางไม่หาย)',()=>{closeModal(ov);FA.signOut(auth)},'ออกจากระบบ');
+  const scp=ov.querySelector('#scp');if(scp)scp.onclick=()=>{navigator.clipboard.writeText(shopId).then(()=>toast('คัดลอกรหัสร้านแล้ว'),()=>{ov.querySelector('#sid').select();toast('กด Ctrl+C เพื่อคัดลอก')})};
+  const lg=ov.querySelector('#lg');if(lg)lg.onclick=()=>confirmBox('ย้ายข้อมูลที่เก็บไว้ในเครื่องนี้ขึ้นระบบกลาง? (ควรทำครั้งเดียว)',()=>{importData(load()).then(()=>toast('ย้ายข้อมูลแล้ว')).catch(wErr);closeModal(ov)},'ย้ายข้อมูล');
 }
 function demo(){
   const d=[['TS-BLK-M','8850000000011','เสื้อยืดสีดำ M','เสื้อผ้า',120,299,24,5],['TS-BLK-L','8850000000028','เสื้อยืดสีดำ L','เสื้อผ้า',120,299,3,5],['CAP-ORG','8850000000035','หมวกแก๊ปสีส้ม','เครื่องประดับ',90,229,15,4],['BAG-01','8850000000042','กระเป๋าผ้า','เครื่องประดับ',60,159,40,10],['MUG-BK','8850000000059','แก้วเซรามิกดำ','ของใช้',45,129,0,6],['NB-A5','8850000000066','สมุดโน้ต A5','เครื่องเขียน',25,79,60,15]];
-  const t0=Date.now();
-  d.forEach((r,i)=>{const p={id:uid('p'),sku:r[0],barcode:r[1],name:r[2],cat:r[3],cost:r[4],price:r[5],qty:0,reorder:r[7],img:''};S.products.push(p);
-    if(r[6]){applyMovement(p.id,'in',r[6]+8+i,'ยอดยกมา',t0-12*864e5);applyMovement(p.id,'out',-(8+i),'ขายออก',t0-(3+i)*864e5)}});
-  save();toast('เพิ่มข้อมูลตัวอย่างแล้ว');render();
+  const t0=Date.now(),wb=mkBatch();
+  d.forEach((r,i)=>{const p={id:uid('p'),sku:r[0],barcode:r[1],name:r[2],cat:r[3],cost:r[4],price:r[5],qty:0,reorder:r[7],img:''};S.products.push(p);wb.set(PR(p.id),strip(p));
+    if(r[6]){applyMovement(p.id,'in',r[6]+8+i,'ยอดยกมา',t0-12*864e5,wb);applyMovement(p.id,'out',-(8+i),'ขายออก',t0-(3+i)*864e5,wb)}});
+  wb.commit().catch(wErr);toast('เพิ่มข้อมูลตัวอย่างแล้ว');render();
+}
+
+/* ============ Firebase: ล็อกอิน + ซิงก์ข้อมูล ============ */
+const FBC={apiKey:"AIzaSyCyFyzjGI7yXmjMJbdSLFrhzcKH58rwErg",authDomain:"stockpro-181ea.firebaseapp.com",projectId:"stockpro-181ea",storageBucket:"stockpro-181ea.firebasestorage.app",messagingSenderId:"429135153077",appId:"1:429135153077:web:1999fb57cce1af25117bfc"};
+let FA,FS,db,auth,user=null,shopId=null,ready=false,unsubs=[],dirty=false,first={},pend={},tmr=null;
+const strip=o=>{const r=Object.assign({},o);delete r.id;return JSON.parse(JSON.stringify(r))};   // ตัด id และค่า undefined (Firestore ไม่รับ)
+const PR=id=>FS.doc(db,'shops',shopId,'products',id),MR=id=>FS.doc(db,'shops',shopId,'movements',id),CR=id=>FS.doc(db,'shops',shopId,'counts',id);
+const wErr=e=>{console.warn(e);toast(e&&e.code==='permission-denied'?'ไม่มีสิทธิ์ทำรายการนี้':'บันทึกไม่สำเร็จ: '+((e&&e.message)||e),'err')};
+/* batch ที่แบ่งส่งอัตโนมัติทุก 450 รายการ (ขีดจำกัด Firestore คือ 500) */
+function mkBatch(){let b=FS.writeBatch(db),n=0;const ps=[];
+  const flush=()=>{ps.push(b.commit());b=FS.writeBatch(db);n=0};
+  const bump=()=>{if(++n>=450)flush()};
+  return {set(r,d){b.set(r,d);bump()},update(r,d){b.update(r,d);bump()},commit(){if(n)flush();return Promise.all(ps)}}}
+async function importData(d){const wb=mkBatch(),mid=new Set(S.movements.map(m=>m.id)),cid=new Set(S.counts.map(c=>c.id));
+  (d.products||[]).forEach(p=>p.id&&wb.set(PR(p.id),strip(p)));
+  (d.movements||[]).forEach(m=>{if(m.id&&!mid.has(m.id))wb.set(MR(m.id),strip(m))});
+  (d.counts||[]).forEach(c=>{if(c.id&&!cid.has(c.id))wb.set(CR(c.id),strip(c))});
+  await wb.commit()}
+
+function gate(html){let g=$('#gate');if(!g){g=document.createElement('div');g.id='gate';document.body.append(g)}
+  g.innerHTML=`<div class="gbox"><div class="logo" style="width:64px;height:64px;margin:0 auto 12px">${ic('box',34)}</div><div class="brand" style="font-size:26px;text-align:center">StockPro</div>${html}</div>`}
+function gateOff(){const g=$('#gate');if(g)g.remove()}
+const authMsg=e=>({'auth/invalid-credential':'อีเมลหรือรหัสผ่านไม่ถูกต้อง','auth/wrong-password':'อีเมลหรือรหัสผ่านไม่ถูกต้อง','auth/user-not-found':'ไม่พบบัญชีนี้','auth/email-already-in-use':'อีเมลนี้สมัครไว้แล้ว','auth/weak-password':'รหัสผ่านต้องมี 6 ตัวขึ้นไป','auth/invalid-email':'รูปแบบอีเมลไม่ถูกต้อง','auth/popup-closed-by-user':'','auth/cancelled-popup-request':'','auth/unauthorized-domain':'โดเมนนี้ยังไม่ได้เพิ่มใน Firebase → Authentication → Authorized domains','auth/operation-not-allowed':'ยังไม่ได้เปิดวิธีล็อกอินนี้ใน Firebase → Authentication → Sign-in method','auth/network-request-failed':'ออฟไลน์อยู่ — ต้องมีเน็ตตอนล็อกอิน'}[e.code]??('ผิดพลาด: '+(e.code||e.message)));
+function showLogin(msg){
+  gate(`<p class="muted" style="text-align:center;margin:8px 0 18px">เข้าสู่ระบบเพื่อใช้สต๊อกชุดเดียวกันทุกเครื่อง</p>
+  <button class="btn block" id="gg" style="padding:15px;background:#fff;color:#111;box-shadow:none">เข้าสู่ระบบด้วย Google</button>
+  <div class="muted" style="text-align:center;margin:16px 0 4px;font-size:13px">หรือใช้อีเมล</div>
+  <input id="ge" type="email" placeholder="อีเมล" autocomplete="username"><input id="gp" type="password" placeholder="รหัสผ่าน (6 ตัวขึ้นไป)" autocomplete="current-password" style="margin-top:8px">
+  <div class="grid2" style="margin-top:10px"><button class="btn dark" id="gi">เข้าสู่ระบบ</button><button class="btn ghost" id="gn">สมัครใหม่</button></div>
+  <div id="gm" class="hint" style="color:var(--red);text-align:center;min-height:18px">${esc(msg||'')}</div>`);
+  const m=t=>{$('#gm').textContent=t};
+  const run=f=>async()=>{m('');try{await f()}catch(e){m(authMsg(e))}};
+  $('#gg').onclick=run(()=>FA.signInWithPopup(auth,new FA.GoogleAuthProvider()));
+  $('#gi').onclick=run(()=>FA.signInWithEmailAndPassword(auth,$('#ge').value.trim(),$('#gp').value));
+  $('#gn').onclick=run(()=>FA.createUserWithEmailAndPassword(auth,$('#ge').value.trim(),$('#gp').value));
+}
+function showShop(){
+  gate(`<p style="text-align:center;margin:8px 0 0">สวัสดี ${esc(user.displayName||user.email||'')}</p>
+  <label>สร้างร้านใหม่ (คุณจะเป็นเจ้าของร้าน)</label><input id="sn1" placeholder="ชื่อร้าน"><button class="btn block" id="sc" style="margin-top:8px">สร้างร้าน</button>
+  <div class="muted" style="text-align:center;margin:16px 0 0">หรือ</div>
+  <label>เข้าร่วมร้านที่มีอยู่ (ใส่รหัสร้านจากเจ้าของ)</label><input id="sj" placeholder="รหัสร้าน"><button class="btn dark block" id="sjb" style="margin-top:8px">เข้าร่วมร้าน</button>
+  <div id="gm" class="hint" style="color:var(--red);text-align:center;min-height:18px"></div>
+  <button class="btn ghost sm block" id="so">ออกจากระบบ</button>`);
+  const m=t=>{$('#gm').textContent=t};
+  $('#so').onclick=()=>FA.signOut(auth);
+  $('#sc').onclick=async()=>{const name=$('#sn1').value.trim();if(!name)return m('กรุณาใส่ชื่อร้าน');m('กำลังสร้าง…');
+    try{const id=FS.doc(FS.collection(db,'shops')).id,wb=FS.writeBatch(db);
+      wb.set(FS.doc(db,'shops',id),{name,ownerUid:user.uid,members:{[user.uid]:'owner'},createdAt:Date.now()});
+      wb.set(FS.doc(db,'users',user.uid),{shopId:id});await wb.commit();enterShop(id)}catch(e){m('สร้างไม่สำเร็จ: '+(e.code||e.message))}};
+  $('#sjb').onclick=async()=>{const id=$('#sj').value.trim();if(!id)return m('กรุณาใส่รหัสร้าน');m('กำลังเข้าร่วม…');
+    try{await FS.updateDoc(FS.doc(db,'shops',id),{['members.'+user.uid]:'staff'});await FS.setDoc(FS.doc(db,'users',user.uid),{shopId:id});enterShop(id)}
+    catch(e){m(e.code==='permission-denied'||e.code==='not-found'?'รหัสร้านไม่ถูกต้อง':'เข้าร่วมไม่สำเร็จ: '+(e.code||e.message))}};
+}
+function setSync(){const e=$('#sync');if(!e)return;const off=!navigator.onLine,p=pend.p||pend.m||pend.c;
+  e.className='badge '+(off?'red':p?'':'grn');e.textContent=off?(p?'ออฟไลน์ · รอซิงก์':'ออฟไลน์'):p?'กำลังซิงก์…':'ซิงก์แล้ว'}
+addEventListener('online',setSync);addEventListener('offline',setSync);
+function changed(){setSync();clearTimeout(tmr);tmr=setTimeout(()=>{
+  if(!ready){if(first.p&&first.m&&first.c){ready=true;gateOff();render();offerMigrate()}}else refresh()},50)}
+function stopListeners(){unsubs.forEach(u=>u());unsubs=[];first={};pend={};ready=false}
+function startListeners(){
+  stopListeners();
+  const on=(q,k,cb)=>unsubs.push(FS.onSnapshot(q,{includeMetadataChanges:true},sn=>{pend[k]=sn.metadata.hasPendingWrites;first[k]=1;cb(sn);changed()},
+    e=>{console.warn(e);if(e.code==='permission-denied'&&!ready){gate('<p class="muted" style="text-align:center">ไม่มีสิทธิ์เข้าถึงร้านนี้</p><button class="btn block" id="so">ออกจากระบบ</button>');$('#so').onclick=()=>FA.signOut(auth)}}));
+  const col=n=>FS.collection(db,'shops',shopId,n);
+  on(FS.doc(db,'shops',shopId),'s',sn=>{if(!sn.exists())return;const d=sn.data();S.settings.shopName=d.name||'ร้านของฉัน';S.role=(d.members||{})[user.uid]||'staff';first.s=1});
+  on(col('products'),'p',sn=>{S.products=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
+  on(FS.query(col('movements'),FS.orderBy('ts','desc'),FS.limit(2000)),'m',sn=>{S.movements=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
+  on(FS.query(col('counts'),FS.orderBy('countedAt','desc'),FS.limit(200)),'c',sn=>{S.counts=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
+}
+function enterShop(id){shopId=id;L.shopId=id;L.uid=user.uid;if(S.settings.user==='ฉัน'&&user.displayName)S.settings.user=user.displayName;save();
+  gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังโหลดข้อมูลร้าน…</p>');startListeners()}
+function offerMigrate(){if(S.products.length||L.migrated)return;const o=load();if(!o.products.length)return;L.migrated=1;save();
+  confirmBox(`พบข้อมูลเดิมในเครื่องนี้ (${o.products.length} สินค้า) ย้ายขึ้นระบบกลางเลยไหม?`,()=>importData(o).then(()=>toast('ย้ายข้อมูลแล้ว')).catch(wErr),'ย้ายข้อมูล')}
+async function boot(){
+  gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังเริ่มต้น…</p>');
+  try{
+    const B='https://www.gstatic.com/firebasejs/10.12.2/';
+    const [A,Au,F]=await Promise.all([import(B+'firebase-app.js'),import(B+'firebase-auth.js'),import(B+'firebase-firestore.js')]);
+    const app=A.initializeApp(FBC);FA=Au;FS=F;auth=Au.getAuth(app);
+    try{db=F.initializeFirestore(app,{localCache:F.persistentLocalCache({tabManager:F.persistentMultipleTabManager()})})}catch(e){db=F.getFirestore(app)}
+  }catch(e){console.warn(e);gate('<p class="muted" style="text-align:center;margin:14px 0">โหลดระบบซิงก์ไม่ได้ — ต้องออนไลน์ในการเปิดครั้งแรก</p><button class="btn block" onclick="location.reload()">ลองใหม่</button>');return}
+  FA.onAuthStateChanged(auth,async u=>{
+    user=u;
+    if(!u){stopListeners();shopId=null;L.shopId=null;S.products=[];S.movements=[];S.counts=[];save();return showLogin()}
+    if(L.shopId&&L.uid===u.uid)return enterShop(L.shopId);
+    gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังตรวจสอบบัญชี…</p>');
+    try{const s=await FS.getDoc(FS.doc(db,'users',u.uid));s.exists()?enterShop(s.data().shopId):showShop()}
+    catch(e){showLogin('โหลดข้อมูลบัญชีไม่ได้: '+(e.code||e.message))}
+  });
 }
 
 /* ============ เริ่มต้น ============ */
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(scanStop)scanStop();else closeModal()}});
-render();
+boot();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>

@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function members(shopId) {
+      return get(/databases/$(database)/documents/shops/$(shopId)).data.members;
+    }
+    function isMember(shopId) { return signedIn() && request.auth.uid in members(shopId); }
+    function isOwner(shopId)  { return isMember(shopId) && members(shopId)[request.auth.uid] == 'owner'; }
+
+    // users/{uid}: บอกว่าผู้ใช้คนนี้อยู่ร้านไหน (อ่าน/เขียนได้เฉพาะของตัวเอง)
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /shops/{shopId} {
+      allow read: if isMember(shopId);
+
+      // สร้างร้านใหม่: ผู้สร้างต้องเป็น owner คนเดียว
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.members.keys().hasOnly([request.auth.uid])
+        && request.resource.data.members[request.auth.uid] == 'owner';
+
+      // owner แก้ได้ทุกอย่าง / คนที่มีรหัสร้านเข้าร่วมได้เฉพาะเพิ่มตัวเองเป็น staff เท่านั้น
+      allow update: if isOwner(shopId)
+        || (signedIn()
+            && !(request.auth.uid in resource.data.members)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+            && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid])
+            && request.resource.data.members[request.auth.uid] == 'staff');
+
+      match /products/{id} {
+        allow read, create, update: if isMember(shopId);
+        allow delete: if isOwner(shopId);
+      }
+      // ประวัติ: เพิ่มได้อย่างเดียว ห้ามแก้/ลบ (ย้อนดูได้จริง)
+      match /movements/{id} {
+        allow read, create: if isMember(shopId);
+      }
+      match /counts/{id} {
+        allow read, create: if isMember(shopId);
+      }
+    }
+  }
+}

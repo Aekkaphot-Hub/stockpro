@@ -1,4 +1,4 @@
-const CACHE = 'stockpro-v1';
+const CACHE = 'stockpro-v2';
 const FILES = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -12,16 +12,21 @@ self.addEventListener('activate', e => {
   );
 });
 
-// network-first (ได้เวอร์ชันใหม่เสมอเมื่อออนไลน์) แล้ว fallback เป็นแคชเมื่อออฟไลน์
+// เก็บแคชเฉพาะไฟล์ของแอพเอง และไลบรารี Firebase จาก gstatic (เพื่อเปิดแอพตอนออฟไลน์ได้)
+// คำขอไปยัง Firestore/Auth (googleapis.com) ปล่อยผ่านตามปกติ ไม่แตะต้อง
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  const mine = url.origin === location.origin;
+  const lib = url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/');
+  if (!mine && !lib) return;
   e.respondWith(
     fetch(e.request).then(res => {
-      if (res.ok && new URL(e.request.url).origin === location.origin) {
+      if (res.ok) {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));
       }
       return res;
-    }).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
+    }).catch(() => caches.match(e.request).then(r => r || (mine ? caches.match('./index.html') : Response.error())))
   );
 });
