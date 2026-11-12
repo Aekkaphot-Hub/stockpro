@@ -3,11 +3,16 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    function members(shopId) {
-      return get(/databases/$(database)/documents/shops/$(shopId)).data.members;
+    function shop(shopId) { return get(/databases/$(database)/documents/shops/$(shopId)).data; }
+    function role(shopId) { return shop(shopId).members[request.auth.uid]; }
+    function isMember(shopId) { return signedIn() && request.auth.uid in shop(shopId).members; }
+    function isOwner(shopId)  { return isMember(shopId) && role(shopId) == 'owner'; }
+    // แก้ไขสต๊อกได้: เจ้าของร้านเสมอ / สมาชิกระดับ staff เมื่อเจ้าของไม่ได้ล็อกการแก้ไข (lockEdits)
+    function canEdit(shopId) {
+      return isMember(shopId)
+        && (role(shopId) == 'owner'
+            || (role(shopId) == 'staff' && shop(shopId).get('lockEdits', false) == false));
     }
-    function isMember(shopId) { return signedIn() && request.auth.uid in members(shopId); }
-    function isOwner(shopId)  { return isMember(shopId) && members(shopId)[request.auth.uid] == 'owner'; }
 
     // users/{uid}: บอกว่าผู้ใช้คนนี้อยู่ร้านไหน (อ่าน/เขียนได้เฉพาะของตัวเอง)
     match /users/{uid} {
@@ -23,24 +28,35 @@ service cloud.firestore {
         && request.resource.data.members.keys().hasOnly([request.auth.uid])
         && request.resource.data.members[request.auth.uid] == 'owner';
 
-      // owner แก้ได้ทุกอย่าง / คนที่มีรหัสร้านเข้าร่วมได้เฉพาะเพิ่มตัวเองเป็น staff เท่านั้น
+      // owner แก้ได้ทุกอย่าง (เปลี่ยนสิทธิ์/ลบสมาชิก/ล็อกการแก้ไข)
+      // คนที่มีรหัสร้านเข้าร่วมได้เฉพาะเพิ่มตัวเองเป็น "viewer" (ดูอย่างเดียว) จนกว่า owner จะอนุญาต
       allow update: if isOwner(shopId)
         || (signedIn()
             && !(request.auth.uid in resource.data.members)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
             && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid])
-            && request.resource.data.members[request.auth.uid] == 'staff');
+            && request.resource.data.members[request.auth.uid] == 'viewer');
+
+      // รายชื่อ/อีเมลสมาชิก: ทุกคนในร้านอ่านได้ เขียนได้เฉพาะของตัวเอง owner ลบได้
+      match /people/{uid} {
+        allow read: if isMember(shopId);
+        allow create, update: if isMember(shopId) && request.auth.uid == uid;
+        allow delete: if isOwner(shopId);
+      }
 
       match /products/{id} {
-        allow read, create, update: if isMember(shopId);
+        allow read: if isMember(shopId);
+        allow create, update: if canEdit(shopId);
         allow delete: if isOwner(shopId);
       }
       // ประวัติ: เพิ่มได้อย่างเดียว ห้ามแก้/ลบ (ย้อนดูได้จริง)
       match /movements/{id} {
-        allow read, create: if isMember(shopId);
+        allow read: if isMember(shopId);
+        allow create: if canEdit(shopId);
       }
       match /counts/{id} {
-        allow read, create: if isMember(shopId);
+        allow read: if isMember(shopId);
+        allow create: if canEdit(shopId);
       }
     }
   }

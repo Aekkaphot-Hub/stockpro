@@ -182,6 +182,9 @@ td.n,th.n{text-align:right}
 #gate{position:fixed;inset:0;z-index:150;background:radial-gradient(circle at 50% 0%,#3a1a00,#0e0e0f 62%);display:grid;place-items:center;padding:20px;overflow:auto}
 .gbox{width:100%;max-width:380px}
 #sync{margin-left:4px;white-space:nowrap}
+.sw{width:52px;height:30px;border-radius:99px;background:#3a3a40;position:relative;flex:none;transition:.15s}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.15s}
+.sw.on{background:var(--or)}.sw.on::after{left:25px}
 </style>
 </head>
 <body>
@@ -223,7 +226,7 @@ l:'<path d="M15 18l-6-6 6-6"/>',r:'<path d="M9 18l6-6-6-6"/>',
 fire:'<path d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 3-7 1 1 2 2 3 2 0-3-1-5 0-7z"/>',
 coin:'<circle cx="12" cy="12" r="9"/><path d="M14.5 9a2.5 2 0 0 0-2.5-1.5c-1.5 0-2.5.8-2.5 1.8s1 1.5 2.5 1.7 2.5.7 2.5 1.8-1 1.7-2.5 1.7A2.5 2 0 0 1 9.5 15M12 6v1.5M12 16.5V18"/>',
 list:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
-send:'<path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/>',copy:'<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+send:'<path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/>',users:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',copy:'<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
 back:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>'
 };
 const ic=(n,s)=>`<svg class="ic" viewBox="0 0 24 24"${s?` style="font-size:${s}px"`:''}>${IC[n]}</svg>`;
@@ -235,7 +238,7 @@ function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&Array.is
 /* S = ข้อมูลที่ซิงก์จาก Firebase (อัปเดตจาก onSnapshot) / ข้อมูลเฉพาะเครื่อง (ใบนับที่ยังไม่เสร็จ, ชื่อผู้ใช้) เก็บใน LocalStorage */
 const LKEY='stockpro_local';
 let L={};try{L=JSON.parse(localStorage.getItem(LKEY))||{}}catch(e){}
-let S={products:[],movements:[],counts:[],draft:L.draft||null,role:'staff',settings:{shopName:'ร้านของฉัน',user:L.user||'ฉัน'}};
+let S={products:[],movements:[],counts:[],draft:L.draft||null,role:'viewer',members:{},people:{},lockEdits:false,settings:{shopName:'ร้านของฉัน',user:L.user||'ฉัน'}};
 function save(){try{localStorage.setItem(LKEY,JSON.stringify({draft:S.draft,user:S.settings.user,shopId:L.shopId,uid:L.uid,migrated:L.migrated}))}catch(e){}}
 const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const $=s=>document.querySelector(s);
@@ -332,9 +335,9 @@ let pq='';
 const thumb=p=>`<div class="thumb" style="${p.img?`background-image:url(${p.img})`:''}">${p.img?'':ic('box')}</div>`;
 function vProducts(){
   const low=S.products.filter(p=>p.qty<=p.reorder).length;
-  $('#view').innerHTML=`<h2>${ic('box',26)}สินค้า <span class="badge gry">${S.products.length} รายการ</span>${low?`<span class="badge red">${ic('alert',12)} ใกล้หมด ${low}</span>`:''}</h2>
+  $('#view').innerHTML=`${roBanner()}<h2>${ic('box',26)}สินค้า <span class="badge gry">${S.products.length} รายการ</span>${low?`<span class="badge red">${ic('alert',12)} ใกล้หมด ${low}</span>`:''}</h2>
   <div class="searchbar">${ic('search')}<input id="pq" placeholder="ค้นหา ชื่อ / SKU / บาร์โค้ด" value="${esc(pq)}" oninput="pq=this.value;plist()"><button class="btn" onclick="scan(c=>{pq=c;$('#pq').value=c;plist()})" aria-label="สแกน">${ic('scan',22)}</button></div>
-  <div id="pl"></div><button class="fab" onclick="editProduct()" aria-label="เพิ่มสินค้า">${ic('plus',30)}</button>`;
+  <div id="pl"></div>${canEdit()?`<button class="fab" onclick="editProduct()" aria-label="เพิ่มสินค้า">${ic('plus',30)}</button>`:''}`;
   plist();
 }
 function plist(){
@@ -344,6 +347,7 @@ function plist(){
   $('#pl').innerHTML=`<div class="plist">`+l.map(p=>{const lw=p.qty<=p.reorder;return `<div class="prod ${lw?'low':''}" onclick="editProduct('${p.id}')">${thumb(p)}<div class="info"><div class="nm">${esc(p.name)}</div><div class="sk">${esc(p.sku||'-')}${p.cat?' · '+esc(p.cat):''}</div>${lw?`<span class="badge red">${p.qty<=0?'หมด':'ใกล้หมด'}</span>`:''}</div><div class="qty ${lw?'low':''}"><b>${p.qty}</b><small>คงเหลือ</small></div></div>`}).join('')+`</div>`;
 }
 function editProduct(id,pre){
+  if(!canEdit())return needEdit();
   const p=id?P(id):Object.assign({name:'',sku:'',barcode:'',cat:'',cost:'',price:'',qty:0,reorder:5,img:''},pre||{});
   let img=p.img||'';
   const ov=modal(`<h3>${ic(id?'edit':'plus')}${id?'แก้ไขสินค้า':'เพิ่มสินค้าใหม่'}${closeBtn}</h3>
@@ -375,7 +379,7 @@ function resizeImg(file){return new Promise(res=>{const r=new FileReader();r.onl
 /* ============ 2) รับเข้า / ตัดออก ============ */
 function vMove(){
   const recent=[...S.movements].sort((a,b)=>b.ts-a.ts).slice(0,8);
-  $('#view').innerHTML=`<h2>${ic('swap',26)}รับเข้า / ตัดออก</h2>
+  $('#view').innerHTML=`${roBanner()}<h2>${ic('swap',26)}รับเข้า / ตัดออก</h2>
   <div class="bigbtns"><button class="big in" onclick="moveDlg('in')">${ic('down')}รับเข้า<small>เติมของเข้าสต๊อก</small></button><button class="big out" onclick="moveDlg('out')">${ic('up')}ตัดออก<small>ขาย / เสียหาย / เบิก</small></button></div>
   <div class="card"><b>รายการล่าสุด</b>${recent.length?recent.map(movRow).join(''):`<div class="empty" style="padding:24px">ยังไม่มีรายการ</div>`}</div>`;
 }
@@ -383,6 +387,7 @@ function movRow(m){const p=P(m.productId),t=TYPES[m.type]||TYPES.adjust;
   return `<div class="li"><div class="mi ${t.k}">${ic(t.i)}</div><div class="t"><div>${esc(p?p.name:'(สินค้าถูกลบ)')}</div><div>${t.n}${m.reason?' · '+esc(m.reason):''} · ${fmtDT(m.ts)}${m.user?' · '+esc(m.user):''}</div></div><div class="d ${m.qty>0?'pos':'neg'}">${m.qty>0?'+':''}${m.qty}</div></div>`}
 const REASONS={in:[['ซื้อ/รับสินค้าเข้า','in'],['ลูกค้าตีกลับ','return'],['อื่นๆ','in']],out:[['ขายออก','out'],['เสียหาย/ชำรุด','damage'],['หาย/เบิกใช้/อื่นๆ','out']]};
 function moveDlg(mode){
+  if(!canEdit())return needEdit();
   let pid=null,q=1,ri=0,search='';
   const ov=modal('');const box=ov.querySelector('.modal');
   const draw=()=>{
@@ -427,7 +432,7 @@ function vCount(){
   const d=S.draft;
   if(!d){
     const hist=[...S.counts].sort((a,b)=>b.countedAt-a.countedAt);
-    $('#view').innerHTML=`<h2>${ic('check',26)}นับสต๊อก</h2>
+    $('#view').innerHTML=`${roBanner()}<h2>${ic('check',26)}นับสต๊อก</h2>
     <div class="card"><b style="font-size:18px">เริ่มรอบนับใหม่</b>
       <label>ชื่อรอบนับ</label><input id="cn" placeholder="เช่น นับประจำสัปดาห์ / นับสิ้นเดือน" value="นับสต๊อก ${new Date().getDate()} ${MONTHS[new Date().getMonth()]}">
       <label>${ic('clock',14)} วัน-เวลาที่นับ</label><input id="cd" type="datetime-local" value="${toInput(new Date())}">
@@ -457,6 +462,7 @@ function clist(){
 function cstep(id,d){cnt(id,(S.draft.counts[id]??0)+d);clist()}
 function cset(id,v){if(v===''){delete S.draft.counts[id];save()}else cnt(id,Math.floor(num(v)));clist();const b=document.querySelector('.badge');}
 function startCount(){
+  if(!canEdit())return needEdit();
   const dt=new Date($('#cd').value);
   S.draft={id:uid('c'),name:$('#cn').value.trim()||'รอบนับ',countedAt:isNaN(dt)?Date.now():dt.getTime(),counter:$('#cb').value.trim()||S.settings.user,counts:{}};
   cq='';save();render();
@@ -600,6 +606,7 @@ function parseCSV(t){const rows=[];let r=[],c='',q=false;t=t.replace(/^﻿/,'');
     else if(ch=='"')q=true;else if(ch==','){r.push(c);c=''}else if(ch=='\n'){r.push(c);rows.push(r);r=[];c=''}else if(ch!='\r')c+=ch}
   if(c||r.length){r.push(c);rows.push(r)}return rows.filter(r=>r.some(x=>x.trim()))}
 function importCSV(text){
+  if(!canEdit())return needEdit();
   const rows=parseCSV(text);if(rows.length<2)return toast('ไฟล์ว่างหรือรูปแบบไม่ถูกต้อง','err');
   const h=rows[0].map(x=>x.trim().toLowerCase()),ix=k=>h.indexOf(k);
   if(ix('name')<0)return toast('ต้องมีคอลัมน์ name','err');
@@ -612,6 +619,7 @@ function importCSV(text){
 }
 function openSettings(){
   const ov=modal(`<h3>${ic('gear')}ตั้งค่า${closeBtn}</h3>
+  ${S.role==='owner'?`<button class="btn block" id="mbm" style="margin:12px 0 2px">${ic('users')}จัดการสมาชิก / สิทธิ์การแก้ไข</button>`:''}
   <label>ชื่อร้าน</label><input id="sn" value="${esc(S.settings.shopName)}"><label>ชื่อผู้ใช้ (บันทึกในประวัติ)</label><input id="su" value="${esc(S.settings.user)}">
   <button class="btn block" id="ss" style="margin-top:12px">บันทึก</button>
   <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
@@ -626,19 +634,21 @@ function openSettings(){
   ${load().products.length?`<button class="btn ghost sm block" style="margin-top:10px" id="lg">ย้ายข้อมูลเดิมในเครื่องนี้ขึ้นระบบกลาง</button>`:''}
   <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
   <b>บัญชีและการซิงก์</b>
-  <div class="muted" style="font-size:13px;margin-top:6px">${esc(user?(user.email||user.displayName||''):'')} · ${S.role==='owner'?'เจ้าของร้าน':'พนักงาน'}</div>
+  <div class="muted" style="font-size:13px;margin-top:6px">${esc(user?(user.email||user.displayName||''):'')} · ${S.role==='owner'?'เจ้าของร้าน':canEdit()?'สมาชิก (แก้ไขได้)':'สมาชิก (ดูอย่างเดียว)'}</div>
   ${S.role==='owner'?`<label>รหัสร้าน (ส่งให้พนักงานเพื่อเข้าร่วม — อย่าแชร์ให้คนนอก)</label><div class="row"><input id="sid" readonly value="${esc(shopId)}"><button class="btn sm" id="scp">${ic('copy')}</button></div>`:''}
   <button class="btn red block sm" style="margin-top:14px" id="lo">ออกจากระบบ</button>`);
-  ov.querySelector('#ss').onclick=()=>{const n=ov.querySelector('#sn').value.trim();S.settings.user=ov.querySelector('#su').value.trim()||'ฉัน';save();
+  ov.querySelector('#ss').onclick=()=>{const n=ov.querySelector('#sn').value.trim();S.settings.user=ov.querySelector('#su').value.trim()||'ฉัน';save();FS.setDoc(FS.doc(db,'shops',shopId,'people',user.uid),{name:S.settings.user},{merge:true}).catch(()=>{});
     if(n&&n!==S.settings.shopName){if(S.role==='owner')FS.updateDoc(FS.doc(db,'shops',shopId),{name:n}).catch(wErr);else toast('เฉพาะเจ้าของร้านเปลี่ยนชื่อร้านได้','err')}
     closeModal(ov);toast('บันทึกแล้ว');render()};
   ov.querySelector('#imf').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{closeModal(ov);importCSV(r.result)};r.readAsText(f,'UTF-8')};
   ov.querySelector('#rsf').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.products))throw 0;confirmBox('นำเข้าไฟล์สำรองขึ้นระบบกลาง: สินค้ารหัสเดียวกันจะถูกเขียนทับ ส่วนประวัติที่มีอยู่แล้วจะข้าม',()=>{importData(d).then(()=>toast('นำเข้าแล้ว')).catch(wErr);closeModal(ov)},'นำเข้า')}catch(x){toast('ไฟล์ไม่ถูกต้อง','err')}};r.readAsText(f)};
+  const mbm=ov.querySelector('#mbm');if(mbm)mbm.onclick=()=>{closeModal(ov);membersDlg()};
   ov.querySelector('#lo').onclick=()=>confirmBox('ออกจากระบบบนเครื่องนี้? (ข้อมูลในระบบกลางไม่หาย)',()=>{closeModal(ov);FA.signOut(auth)},'ออกจากระบบ');
   const scp=ov.querySelector('#scp');if(scp)scp.onclick=()=>{navigator.clipboard.writeText(shopId).then(()=>toast('คัดลอกรหัสร้านแล้ว'),()=>{ov.querySelector('#sid').select();toast('กด Ctrl+C เพื่อคัดลอก')})};
   const lg=ov.querySelector('#lg');if(lg)lg.onclick=()=>confirmBox('ย้ายข้อมูลที่เก็บไว้ในเครื่องนี้ขึ้นระบบกลาง? (ควรทำครั้งเดียว)',()=>{importData(load()).then(()=>toast('ย้ายข้อมูลแล้ว')).catch(wErr);closeModal(ov)},'ย้ายข้อมูล');
 }
 function demo(){
+  if(!canEdit())return needEdit();
   const d=[['TS-BLK-M','8850000000011','เสื้อยืดสีดำ M','เสื้อผ้า',120,299,24,5],['TS-BLK-L','8850000000028','เสื้อยืดสีดำ L','เสื้อผ้า',120,299,3,5],['CAP-ORG','8850000000035','หมวกแก๊ปสีส้ม','เครื่องประดับ',90,229,15,4],['BAG-01','8850000000042','กระเป๋าผ้า','เครื่องประดับ',60,159,40,10],['MUG-BK','8850000000059','แก้วเซรามิกดำ','ของใช้',45,129,0,6],['NB-A5','8850000000066','สมุดโน้ต A5','เครื่องเขียน',25,79,60,15]];
   const t0=Date.now(),wb=mkBatch();
   d.forEach((r,i)=>{const p={id:uid('p'),sku:r[0],barcode:r[1],name:r[2],cat:r[3],cost:r[4],price:r[5],qty:0,reorder:r[7],img:''};S.products.push(p);wb.set(PR(p.id),strip(p));
@@ -657,7 +667,8 @@ function mkBatch(){let b=FS.writeBatch(db),n=0;const ps=[];
   const flush=()=>{ps.push(b.commit());b=FS.writeBatch(db);n=0};
   const bump=()=>{if(++n>=450)flush()};
   return {set(r,d){b.set(r,d);bump()},update(r,d){b.update(r,d);bump()},commit(){if(n)flush();return Promise.all(ps)}}}
-async function importData(d){const wb=mkBatch(),mid=new Set(S.movements.map(m=>m.id)),cid=new Set(S.counts.map(c=>c.id));
+async function importData(d){
+  if(!canEdit())return needEdit();const wb=mkBatch(),mid=new Set(S.movements.map(m=>m.id)),cid=new Set(S.counts.map(c=>c.id));
   (d.products||[]).forEach(p=>p.id&&wb.set(PR(p.id),strip(p)));
   (d.movements||[]).forEach(m=>{if(m.id&&!mid.has(m.id))wb.set(MR(m.id),strip(m))});
   (d.counts||[]).forEach(c=>{if(c.id&&!cid.has(c.id))wb.set(CR(c.id),strip(c))});
@@ -694,27 +705,58 @@ function showShop(){
       wb.set(FS.doc(db,'shops',id),{name,ownerUid:user.uid,members:{[user.uid]:'owner'},createdAt:Date.now()});
       wb.set(FS.doc(db,'users',user.uid),{shopId:id});await wb.commit();enterShop(id)}catch(e){m('สร้างไม่สำเร็จ: '+(e.code||e.message))}};
   $('#sjb').onclick=async()=>{const id=$('#sj').value.trim();if(!id)return m('กรุณาใส่รหัสร้าน');m('กำลังเข้าร่วม…');
-    try{await FS.updateDoc(FS.doc(db,'shops',id),{['members.'+user.uid]:'staff'});await FS.setDoc(FS.doc(db,'users',user.uid),{shopId:id});enterShop(id)}
+    try{await FS.updateDoc(FS.doc(db,'shops',id),{['members.'+user.uid]:'viewer'});await FS.setDoc(FS.doc(db,'users',user.uid),{shopId:id});enterShop(id)}
     catch(e){m(e.code==='permission-denied'||e.code==='not-found'?'รหัสร้านไม่ถูกต้อง':'เข้าร่วมไม่สำเร็จ: '+(e.code||e.message))}};
+}
+/* ===== สิทธิ์การแก้ไข + จัดการสมาชิก (เจ้าของร้าน) ===== */
+let mRedraw=null;
+function canEdit(){return S.role==='owner'||(S.role==='staff'&&!S.lockEdits)}
+function needEdit(){toast(S.role==='viewer'?'บัญชีนี้ดูได้อย่างเดียว ขอให้เจ้าของร้านเปิดสิทธิ์แก้ไข':'เจ้าของร้านปิดการแก้ไขชั่วคราว','err')}
+function roBanner(){return canEdit()?'':`<div class="card" style="border-color:var(--or);margin-bottom:12px;display:flex;gap:10px;align-items:center">${ic('alert',20)}<div style="font-size:14px">${S.role==='viewer'?'บัญชีนี้ดูได้อย่างเดียว — ให้เจ้าของร้านเปิดสิทธิ์แก้ไขที่ ⚙ ตั้งค่า → จัดการสมาชิก':'เจ้าของร้านปิดการแก้ไขชั่วคราว (ดูได้อย่างเดียว)'}</div></div>`}
+function membersDlg(){
+  if(S.role!=='owner')return;
+  const ov=modal('',()=>{mRedraw=null}),box=ov.querySelector('.modal'),shopRef=()=>FS.doc(db,'shops',shopId);
+  const nameOf=id=>{const p=S.people[id]||{};return p.name||p.email||('สมาชิก '+id.slice(0,5))};
+  const draw=()=>{
+    const ids=Object.keys(S.members).sort((a,b)=>(S.members[a]==='owner'?0:1)-(S.members[b]==='owner'?0:1));
+    box.innerHTML=`<h3>${ic('users')}จัดการสมาชิก${closeBtn}</h3>
+    <div class="card" style="margin-top:12px"><div class="row"><div style="flex:1"><b>อนุญาตให้สมาชิกแก้ไขสต๊อก</b><div class="hint">ปิด = สมาชิกทุกคนดูได้อย่างเดียว (เจ้าของร้านแก้ไขได้เสมอ)</div></div><button class="sw ${S.lockEdits?'':'on'}" id="mlock" aria-label="เปิด/ปิดการแก้ไขของสมาชิก"></button></div></div>
+    <label>รหัสร้าน (ให้สมาชิกใหม่ใส่ตอนเข้าร่วม)</label><div class="row"><input id="msid" readonly value="${esc(shopId)}"><button class="btn sm" id="mcp">${ic('copy')}</button></div>
+    <div class="hint">คนที่เข้าร่วมใหม่จะเป็น "ดูอย่างเดียว" จนกว่าคุณจะเปิดสิทธิ์แก้ไขให้ในรายชื่อด้านล่าง</div>
+    <label>สมาชิก (${ids.length} คน)</label>
+    <div class="card" style="padding:4px 12px">${ids.map(id=>{const r=S.members[id],own=r==='owner',p=S.people[id]||{};
+      return `<div class="li"><div class="mi adj">${esc(nameOf(id).slice(0,1).toUpperCase())}</div><div class="t"><div>${esc(nameOf(id))}${id===user.uid?' (คุณ)':''}</div><div>${esc(p.email||'')} · ${own?'เจ้าของร้าน':r==='staff'?'แก้ไขได้':'ดูอย่างเดียว'}</div></div>${own?'<span class="badge">เจ้าของ</span>':`<button class="sw ${r==='staff'?'on':''}" data-t="${id}" aria-label="สิทธิ์แก้ไข"></button><button class="iconbtn" data-d="${id}" aria-label="ลบสมาชิก" style="width:36px;height:36px;margin-left:8px">${ic('trash')}</button>`}</div>`}).join('')}</div>
+    <div class="hint">สวิตช์ในแต่ละแถว: เปิด = แก้ไขสต๊อกได้ · ปิด = ดูอย่างเดียว</div>`;
+    box.querySelector('#mlock').onclick=()=>FS.updateDoc(shopRef(),{lockEdits:!S.lockEdits}).catch(wErr);
+    box.querySelector('#mcp').onclick=()=>navigator.clipboard.writeText(shopId).then(()=>toast('คัดลอกรหัสร้านแล้ว'),()=>{box.querySelector('#msid').select();toast('กด Ctrl+C เพื่อคัดลอก')});
+    box.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{const id=b.dataset.t;FS.updateDoc(shopRef(),{['members.'+id]:S.members[id]==='staff'?'viewer':'staff'}).catch(wErr)});
+    box.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{const id=b.dataset.d;
+      confirmBox(`ลบ <b>${esc(nameOf(id))}</b> ออกจากร้าน? เขาจะเข้าถึงสต๊อกไม่ได้อีก (เข้าร่วมใหม่ได้ด้วยรหัสร้าน)`,()=>{
+        FS.updateDoc(shopRef(),{['members.'+id]:FS.deleteField()}).then(()=>FS.deleteDoc(FS.doc(db,'shops',shopId,'people',id))).catch(wErr);toast('ลบสมาชิกแล้ว')},'ลบสมาชิก')});
+  };
+  mRedraw=draw;draw();
 }
 function setSync(){const e=$('#sync');if(!e)return;const off=!navigator.onLine,p=pend.p||pend.m||pend.c;
   e.className='badge '+(off?'red':p?'':'grn');e.textContent=off?(p?'ออฟไลน์ · รอซิงก์':'ออฟไลน์'):p?'กำลังซิงก์…':'ซิงก์แล้ว'}
 addEventListener('online',setSync);addEventListener('offline',setSync);
 function changed(){setSync();clearTimeout(tmr);tmr=setTimeout(()=>{
-  if(!ready){if(first.p&&first.m&&first.c){ready=true;gateOff();render();offerMigrate()}}else refresh()},50)}
+  if(!ready){if(first.p&&first.m&&first.c){ready=true;gateOff();render();offerMigrate()}}else refresh();if(mRedraw)mRedraw()},50)}
 function stopListeners(){unsubs.forEach(u=>u());unsubs=[];first={};pend={};ready=false}
 function startListeners(){
   stopListeners();
   const on=(q,k,cb)=>unsubs.push(FS.onSnapshot(q,{includeMetadataChanges:true},sn=>{pend[k]=sn.metadata.hasPendingWrites;first[k]=1;cb(sn);changed()},
-    e=>{console.warn(e);if(e.code==='permission-denied'&&!ready){gate('<p class="muted" style="text-align:center">ไม่มีสิทธิ์เข้าถึงร้านนี้</p><button class="btn block" id="so">ออกจากระบบ</button>');$('#so').onclick=()=>FA.signOut(auth)}}));
+    e=>{console.warn(e);if(e.code==='permission-denied'){ready=false;gate('<p class="muted" style="text-align:center;margin:14px 0">คุณไม่มีสิทธิ์เข้าถึงร้านนี้ (อาจถูกเจ้าของร้านลบออก)</p><button class="btn block" id="sw1">เข้าร่วมร้านอื่น / สร้างร้านใหม่</button><button class="btn ghost block" id="so" style="margin-top:8px">ออกจากระบบ</button>');$('#so').onclick=()=>FA.signOut(auth);$('#sw1').onclick=()=>{stopListeners();shopId=null;L.shopId=null;save();showShop()}}}));
   const col=n=>FS.collection(db,'shops',shopId,n);
-  on(FS.doc(db,'shops',shopId),'s',sn=>{if(!sn.exists())return;const d=sn.data();S.settings.shopName=d.name||'ร้านของฉัน';S.role=(d.members||{})[user.uid]||'staff';first.s=1});
+  on(FS.doc(db,'shops',shopId),'s',sn=>{if(!sn.exists())return;const d=sn.data();S.settings.shopName=d.name||'ร้านของฉัน';S.members=d.members||{};S.role=S.members[user.uid]||'viewer';S.lockEdits=!!d.lockEdits;first.s=1});
+  on(col('people'),'g',sn=>{S.people={};sn.docs.forEach(d=>{S.people[d.id]=d.data()})});
   on(col('products'),'p',sn=>{S.products=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
   on(FS.query(col('movements'),FS.orderBy('ts','desc'),FS.limit(2000)),'m',sn=>{S.movements=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
   on(FS.query(col('counts'),FS.orderBy('countedAt','desc'),FS.limit(200)),'c',sn=>{S.counts=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
 }
 function enterShop(id){shopId=id;L.shopId=id;L.uid=user.uid;if(S.settings.user==='ฉัน'&&user.displayName)S.settings.user=user.displayName;save();
-  gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังโหลดข้อมูลร้าน…</p>');startListeners()}
+  gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังโหลดข้อมูลร้าน…</p>');
+  FS.setDoc(FS.doc(db,'shops',id,'people',user.uid),{name:S.settings.user||user.displayName||'',email:user.email||''},{merge:true}).catch(()=>{});
+  startListeners()}
 function offerMigrate(){if(S.products.length||L.migrated)return;const o=load();if(!o.products.length)return;L.migrated=1;save();
   confirmBox(`พบข้อมูลเดิมในเครื่องนี้ (${o.products.length} สินค้า) ย้ายขึ้นระบบกลางเลยไหม?`,()=>importData(o).then(()=>toast('ย้ายข้อมูลแล้ว')).catch(wErr),'ย้ายข้อมูล')}
 async function boot(){
