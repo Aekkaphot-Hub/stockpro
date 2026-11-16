@@ -185,6 +185,12 @@ td.n,th.n{text-align:right}
 .sw{width:52px;height:30px;border-radius:99px;background:#3a3a40;position:relative;flex:none;transition:.15s}
 .sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.15s}
 .sw.on{background:var(--or)}.sw.on::after{left:25px}
+.bulkbar{position:sticky;bottom:80px;z-index:5;margin-top:12px}
+@media(min-width:900px){.bulkbar{bottom:16px}}
+.bli{flex-wrap:wrap}.bli .t{flex:1 1 150px}
+.bli.hl{background:#ff7a0018;border-radius:12px}
+.sug{display:flex;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid var(--line);cursor:pointer}
+.sug:hover{background:#ffffff0a}
 </style>
 </head>
 <body>
@@ -238,8 +244,8 @@ function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&Array.is
 /* S = ข้อมูลที่ซิงก์จาก Firebase (อัปเดตจาก onSnapshot) / ข้อมูลเฉพาะเครื่อง (ใบนับที่ยังไม่เสร็จ, ชื่อผู้ใช้) เก็บใน LocalStorage */
 const LKEY='stockpro_local';
 let L={};try{L=JSON.parse(localStorage.getItem(LKEY))||{}}catch(e){}
-let S={products:[],movements:[],counts:[],draft:L.draft||null,role:'viewer',members:{},people:{},lockEdits:false,settings:{shopName:'ร้านของฉัน',user:L.user||'ฉัน'}};
-function save(){try{localStorage.setItem(LKEY,JSON.stringify({draft:S.draft,user:S.settings.user,shopId:L.shopId,uid:L.uid,migrated:L.migrated}))}catch(e){}}
+let S={products:[],movements:[],counts:[],draft:L.draft||null,bulk:L.bulk||null,role:'viewer',members:{},people:{},lockEdits:false,settings:{shopName:'ร้านของฉัน',user:L.user||'ฉัน'}};
+function save(){try{localStorage.setItem(LKEY,JSON.stringify({draft:S.draft,bulk:S.bulk,user:S.settings.user,shopId:L.shopId,uid:L.uid,migrated:L.migrated}))}catch(e){}}
 const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -283,7 +289,8 @@ function confirmBox(msg,yes,label){
 
 /* ============ สแกนบาร์โค้ด ============ */
 let scanStop=null;
-async function scan(cb){
+async function scan(cb,opt){
+  opt=opt||{};
   const ov=document.createElement('div');ov.className='scanov';
   ov.innerHTML=`<div class="scanbox"><video id="sv" playsinline muted></video><div id="rd" style="width:100%;height:100%;display:none"></div><div class="scanline"></div></div>
   <div class="muted">เล็งบาร์โค้ด / QR ให้อยู่ในกรอบ</div>
@@ -293,7 +300,10 @@ async function scan(cb){
   let stream=null,timer=null,h5=null,done=false;
   const stop=()=>{done=true;clearInterval(timer);stream&&stream.getTracks().forEach(t=>t.stop());h5&&h5.stop().catch(()=>{});ov.remove();scanStop=null};
   scanStop=stop;
-  const found=c=>{if(done||!c)return;stop();if(navigator.vibrate)navigator.vibrate(60);cb(String(c).trim())};
+  let last='',lt=0;
+  const found=c=>{if(done||!c)return;c=String(c).trim();
+    if(opt.multi){const n=Date.now();if(c===last&&n-lt<1500)return;last=c;lt=n;cb(c);const m=ov.querySelector('.muted');if(m)m.textContent='✔ '+c+' — สแกนชิ้นต่อไปได้เลย';ov.querySelector('#sm').value='';return}  // โหมดสแกนต่อเนื่อง: ไม่ปิดกล้อง
+    stop();if(navigator.vibrate)navigator.vibrate(60);cb(c)};
   ov.querySelector('#scl').onclick=stop;
   ov.querySelector('#smb').onclick=()=>found(ov.querySelector('#sm').value);
   ov.querySelector('#sm').addEventListener('keydown',e=>{if(e.key==='Enter')found(e.target.value)});
@@ -378,9 +388,12 @@ function resizeImg(file){return new Promise(res=>{const r=new FileReader();r.onl
 
 /* ============ 2) รับเข้า / ตัดออก ============ */
 function vMove(){
+  if(S.bulk)return vBulk();
   const recent=[...S.movements].sort((a,b)=>b.ts-a.ts).slice(0,8);
   $('#view').innerHTML=`${roBanner()}<h2>${ic('swap',26)}รับเข้า / ตัดออก</h2>
   <div class="bigbtns"><button class="big in" onclick="moveDlg('in')">${ic('down')}รับเข้า<small>เติมของเข้าสต๊อก</small></button><button class="big out" onclick="moveDlg('out')">${ic('up')}ตัดออก<small>ขาย / เสียหาย / เบิก</small></button></div>
+  <div class="card" style="margin-bottom:18px"><div class="row" style="margin-bottom:10px">${ic('scan',22)}<div><b>ทำครั้งละหลายรายการ</b><div class="muted" style="font-size:13px">สแกนต่อเนื่องด้วยเครื่องสแกนบาร์โค้ดหรือกล้อง แล้วกดยืนยันครั้งเดียว</div></div></div>
+    <div class="grid2"><button class="btn" onclick="bulkStart('in')">${ic('down')}รับเข้าหลายรายการ</button><button class="btn dark" onclick="bulkStart('out')">${ic('up')}ตัดออกหลายรายการ</button></div></div>
   <div class="card"><b>รายการล่าสุด</b>${recent.length?recent.map(movRow).join(''):`<div class="empty" style="padding:24px">ยังไม่มีรายการ</div>`}</div>`;
 }
 function movRow(m){const p=P(m.productId),t=TYPES[m.type]||TYPES.adjust;
@@ -425,6 +438,86 @@ function moveDlg(mode){
   };
   draw();
 }
+
+/* ============ 2b) รับเข้า/ตัดออก หลายรายการ (สแกนต่อเนื่อง) ============ */
+const fine=matchMedia('(pointer:fine)').matches;   // มีเมาส์/คีย์บอร์ด → โฟกัสช่องสแกนอัตโนมัติ (มือถือจะไม่เด้งคีย์บอร์ด)
+let actx=null;
+function beep(ok){try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();const o=actx.createOscillator(),g=actx.createGain();
+  o.type=ok?'sine':'square';o.frequency.value=ok?1250:220;g.gain.value=.08;o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+(ok?.08:.3))}catch(e){}
+  if(navigator.vibrate)navigator.vibrate(ok?40:[80,60,80])}
+function bulkStart(mode){if(!canEdit())return needEdit();S.bulk={mode,items:[],ri:0,step:1};save();render()}
+function bulkCancel(){const done=()=>{S.bulk=null;save();render()};if(!S.bulk.items.length)return done();confirmBox(`ยกเลิกรายการที่สแกนไว้ ${S.bulk.items.length} รายการ?`,done,'ยกเลิกทั้งหมด')}
+function bulkAdd(pid,n){const b=S.bulk;let it=b.items.find(i=>i.id===pid);
+  if(it){it.q+=n;b.items=[it].concat(b.items.filter(i=>i!==it))}else b.items.unshift({id:pid,q:n});   // รายการล่าสุดขึ้นบนสุด
+  save();bulkList(pid)}
+function bulkScan(code){code=(code||'').trim();if(!code||!S.bulk)return false;const p=findByCode(code);
+  if(p){bulkAdd(p.id,S.bulk.step||1);beep(true);return true}
+  beep(false);toast('ไม่พบรหัส '+code,'err');return false}
+const bqFocus=()=>{if(fine){const q=$('#bq');if(q)q.focus()}};
+function vBulk(){
+  const b=S.bulk,inn=b.mode==='in';
+  $('#view').innerHTML=`<h2>${ic(inn?'down':'up',26)}${inn?'รับเข้า':'ตัดออก'}หลายรายการ<span class="sp"></span><button class="btn ghost sm" onclick="bulkCancel()">${ic('x',16)}ยกเลิก</button></h2>
+  <div class="card" style="border-color:var(--or)">
+    <div class="searchbar" style="margin:0">${ic('scan')}<input id="bq" placeholder="ยิงบาร์โค้ด / พิมพ์ SKU หรือชื่อ แล้วกด Enter" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><button class="btn" id="bcam" aria-label="สแกนด้วยกล้อง">${ic('cam',22)}</button></div>
+    <div id="bsug"></div>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap"><span class="muted" style="font-size:13px">จำนวนต่อการสแกน</span>
+      <div class="stepper sm"><button id="bsm">${ic('minus')}</button><input id="bst" type="number" inputmode="numeric" value="${b.step}"><button class="p" id="bsp">${ic('plus')}</button></div>
+      <select id="br" style="flex:1;min-width:150px">${REASONS[b.mode].map((r,i)=>`<option value="${i}" ${i===b.ri?'selected':''}>${r[0]}</option>`).join('')}</select></div>
+    <div class="hint">เครื่องสแกน USB/Bluetooth ยิงได้ทันทีแม้ไม่ได้คลิกช่อง · สแกนซ้ำ = เพิ่มจำนวน · กล้องจะเปิดค้างให้สแกนต่อเนื่อง</div>
+  </div>
+  <div id="bl" style="margin-top:12px"></div>
+  <div class="bulkbar"><button class="btn block" id="bok" style="padding:16px"></button></div>`;
+  const q=$('#bq'),sug=$('#bsug');
+  const pick=id=>{bulkAdd(id,S.bulk.step||1);beep(true);q.value='';sug.innerHTML='';bqFocus()};
+  const showSug=()=>{const v=q.value.trim();if(v.length<2){sug.innerHTML='';return[]}
+    const l=S.products.filter(p=>matchP(p,v)).slice(0,6);
+    sug.innerHTML=l.map(p=>`<div class="sug" data-id="${p.id}"><div class="thumb" style="width:36px;height:36px;font-size:16px;border-radius:10px;${p.img?`background-image:url(${p.img})`:''}">${p.img?'':ic('box')}</div><div style="flex:1;min-width:0"><div style="font-weight:600">${esc(p.name)}</div><div class="muted" style="font-size:12px">${esc(p.sku||'')} · คงเหลือ ${p.qty}</div></div>${ic('plus')}</div>`).join('');
+    sug.querySelectorAll('.sug').forEach(e=>e.onclick=()=>pick(e.dataset.id));return l};
+  q.oninput=showSug;
+  q.onkeydown=e=>{if(e.key!=='Enter')return;e.preventDefault();const v=q.value.trim();if(!v)return;
+    if(findByCode(v)){bulkScan(v);q.value='';sug.innerHTML='';return}
+    const l=showSug();if(l.length===1)pick(l[0].id);else if(!l.length){bulkScan(v);q.value=''}};   // ชื่อซ้ำหลายตัว → ให้เลือกจากรายการ
+  $('#bcam').onclick=()=>scan(c=>bulkScan(c),{multi:true});
+  const st=$('#bst'),setStep=v=>{S.bulk.step=Math.max(1,Math.floor(num(v))||1);st.value=S.bulk.step;save()};
+  $('#bsm').onclick=()=>{setStep(S.bulk.step-1);bqFocus()};$('#bsp').onclick=()=>{setStep(S.bulk.step+1);bqFocus()};st.onchange=()=>setStep(st.value);
+  $('#br').onchange=e=>{S.bulk.ri=+e.target.value;save()};
+  $('#bok').onclick=bulkCommit;
+  bulkList();bqFocus();
+}
+function bulkList(hl){
+  const b=S.bulk,el=$('#bl');if(!b||!el)return;const inn=b.mode==='in';
+  b.items=b.items.filter(i=>P(i.id));   // ตัดสินค้าที่ถูกลบไปแล้ว
+  const tot=b.items.reduce((s,i)=>s+i.q,0);
+  el.innerHTML=b.items.length?`<div class="row muted" style="font-size:13px;margin:0 4px 6px"><span>${b.items.length} รายการ · ${money(tot)} ชิ้น</span></div><div class="card" style="padding:4px 10px">`+b.items.map(it=>{const p=P(it.id),after=p.qty+(inn?1:-1)*it.q,bad=after<0;
+    return `<div class="li bli ${it.id===hl?'hl':''}"><div class="thumb" style="width:42px;height:42px;font-size:18px;border-radius:12px;${p.img?`background-image:url(${p.img})`:''}">${p.img?'':ic('box')}</div>
+      <div class="t"><div>${esc(p.name)}</div><div>${esc(p.sku||'-')} · คงเหลือ ${p.qty} → <b style="color:${bad?'var(--red)':'var(--or)'}">${after}</b>${bad?' (ติดลบ)':''}</div></div>
+      <div class="stepper sm" style="margin-left:auto"><button data-m="${it.id}">${ic('minus')}</button><input type="number" inputmode="numeric" data-q="${it.id}" value="${it.q}"><button class="p" data-p="${it.id}">${ic('plus')}</button></div>
+      <button class="iconbtn" data-x="${it.id}" aria-label="เอาออก" style="width:36px;height:36px">${ic('x')}</button></div>`}).join('')+`</div>`
+    :`<div class="empty">${ic('scan')}<div style="font-weight:700;color:var(--tx)">เริ่มสแกนสินค้าได้เลย</div><div style="font-size:13px">ยิงเครื่องสแกน, กดปุ่มกล้อง หรือพิมพ์ชื่อสินค้า</div></div>`;
+  const it=id=>S.bulk.items.find(i=>i.id===id),upd=()=>{save();bulkList();bqFocus()};
+  el.querySelectorAll('[data-m]').forEach(x=>x.onclick=()=>{const i=it(x.dataset.m);i.q=Math.max(1,i.q-1);upd()});
+  el.querySelectorAll('[data-p]').forEach(x=>x.onclick=()=>{it(x.dataset.p).q++;upd()});
+  el.querySelectorAll('[data-q]').forEach(x=>x.onchange=()=>{it(x.dataset.q).q=Math.max(1,Math.floor(num(x.value))||1);upd()});
+  el.querySelectorAll('[data-x]').forEach(x=>x.onclick=()=>{S.bulk.items=S.bulk.items.filter(i=>i.id!==x.dataset.x);upd()});
+  const ok=$('#bok');if(ok){ok.disabled=!b.items.length;ok.style.opacity=b.items.length?1:.45;ok.innerHTML=`${ic('check')}ยืนยัน${inn?'รับเข้า':'ตัดออก'} ${b.items.length} รายการ · ${money(tot)} ชิ้น`}
+}
+function bulkCommit(){
+  const b=S.bulk;if(!b||!b.items.length)return;if(!canEdit())return needEdit();
+  const inn=b.mode==='in',items=b.items.filter(i=>P(i.id)&&i.q>0),tot=items.reduce((s,i)=>s+i.q,0),neg=inn?[]:items.filter(i=>P(i.id).qty-i.q<0);
+  confirmBox(`${inn?'รับเข้า':'ตัดออก'} <b>${items.length}</b> รายการ รวม <b>${money(tot)}</b> ชิ้น<br><span class="muted">เหตุผล: ${esc(REASONS[b.mode][b.ri][0])}</span>${neg.length?`<br><span style="color:var(--red)">⚠ ${neg.length} รายการจะทำให้สต๊อกติดลบ</span>`:''}`,()=>{
+    const r=REASONS[b.mode][b.ri]||REASONS[b.mode][0],wb=mkBatch(),ts=Date.now();
+    items.forEach(i=>applyMovement(i.id,r[1],(inn?1:-1)*i.q,r[0]+' (หลายรายการ)',ts,wb));   // ส่งเป็นชุดเดียว (แบ่งอัตโนมัติถ้าเกิน 450)
+    wb.commit().catch(wErr);S.bulk=null;save();toast(`${inn?'รับเข้า':'ตัดออก'} ${items.length} รายการ (${money(tot)} ชิ้น) แล้ว`);render()},'ยืนยันบันทึก');
+}
+/* เครื่องสแกนบาร์โค้ดทำงานเหมือนคีย์บอร์ดที่พิมพ์เร็วมากแล้วกด Enter → จับไว้ได้แม้ไม่ได้โฟกัสช่องสแกน */
+let kbuf='',kt=0;
+document.addEventListener('keydown',e=>{
+  if(!S.bulk||tab!=='move'||modals.length||scanStop)return;
+  const a=document.activeElement;if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
+  const now=Date.now();if(now-kt>80)kbuf='';kt=now;
+  if(e.key==='Enter'){if(kbuf.length>=3){e.preventDefault();bulkScan(kbuf)}kbuf='';return}
+  if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey)kbuf+=e.key;
+});
 
 /* ============ 3) นับสต๊อก ============ */
 let cq='';
