@@ -58,6 +58,11 @@ service cloud.firestore {
         allow read: if isMember(shopId);
         allow create: if canEdit(shopId);
       }
+      // ยอดขาย/นับรายวัน: 1 เอกสารต่อวัน (YYYY-MM-DD)
+      match /daily/{day} {
+        allow read: if isMember(shopId);
+        allow create, update: if canEdit(shopId);
+      }
     }
   }
 }
