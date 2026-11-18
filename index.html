@@ -672,11 +672,16 @@ function rHist(){
 const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const dLabel=s=>new Date(s+'T00:00').toLocaleDateString('th-TH',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
 let D={view:'day',date:ymd(new Date()),q:''},dUnsub=null,dMonth=null,dpend={},dTimer=null;
-S.daily={};S.dailyCut=true;
+S.daily={};S.dailyCut=true;S.extras=[];
 function dListen(){const m=D.date.slice(0,7);if(m===dMonth&&dUnsub)return;if(dUnsub)dUnsub();dMonth=m;S.daily={};
-  dUnsub=FS.onSnapshot(FS.query(FS.collection(db,'shops',shopId,'daily'),FS.where('month','==',m)),
-    sn=>{S.daily={};sn.docs.forEach(d=>{S.daily[d.id]=d.data()});if(tab==='daily')refresh()},e=>console.warn(e))}
-function dGet(date,pid){const it=((S.daily[date]||{}).items||{})[pid]||{},p=P(pid);
+  const col=n=>FS.collection(db,'shops',shopId,n);
+  const u1=FS.onSnapshot(FS.query(col('daily'),FS.where('month','==',m)),
+    sn=>{S.daily={};sn.docs.forEach(d=>{S.daily[d.id]=d.data()});if(tab==='daily')refresh()},e=>console.warn(e));
+  const u2=FS.onSnapshot(col('dailyItems'),   // รายการสินค้านอกสต๊อก (ใช้เฉพาะเมนูนับรายวัน)
+    sn=>{S.extras=sn.docs.map(d=>Object.assign({id:d.id},d.data()));if(tab==='daily')refresh()},e=>console.warn(e));
+  dUnsub=()=>{u1();u2()}}
+const XI=id=>S.extras.find(x=>x.id===id);
+function dGet(date,pid){const it=((S.daily[date]||{}).items||{})[pid]||{},p=P(pid)||XI(pid);
   return {q:(it.q||0)+(dpend[date+'|'+pid]||0),price:it.price!=null?it.price:(p?num(p.price):0),name:it.name||(p?p.name:'(ลบแล้ว)')}}
 function dTap(pid,d){if(!canEdit())return needEdit();if(dGet(D.date,pid).q+d<0)return;
   const k=D.date+'|'+pid;dpend[k]=(dpend[k]||0)+d;dRow(pid);dTotals();clearTimeout(dTimer);dTimer=setTimeout(dFlush,800)}
@@ -711,8 +716,10 @@ function dDay(){
     <button class="iconbtn" onclick="dShift(1)" aria-label="วันถัดไป" ${isToday?'disabled style="opacity:.3"':''}>${ic('r')}</button></div>
   ${isToday?'':`<button class="btn ghost sm block" style="margin:-4px 0 12px" onclick="dFlush();D.date=ymd(new Date());vDaily()">${ic('back',16)}กลับไปวันนี้</button>`}
   <div class="stats" id="dsum"></div>
-  <div class="card" style="margin-bottom:12px;padding:10px 14px"><div class="row"><div style="flex:1;font-size:14px"><b>ตัดสต๊อกอัตโนมัติ</b><div class="muted" style="font-size:12px">${cut?'กด + = ขาย 1 ชิ้น และหักออกจากสต๊อกทันที':'นับยอดอย่างเดียว ไม่กระทบสต๊อก'}</div></div>
+  <div class="card" style="margin-bottom:12px;padding:10px 14px"><div class="row"><div style="flex:1;font-size:14px"><b>ตัดสต๊อกอัตโนมัติ</b><div class="muted" style="font-size:12px">${cut?'กด + ที่สินค้าในสต๊อก = ขาย 1 ชิ้น และหักจากสต๊อกทันที (รายการนอกสต๊อกไม่ถูกหัก)':'นับยอดอย่างเดียว ไม่กระทบสต๊อก'}</div></div>
     ${S.role==='owner'?`<button class="sw ${cut?'on':''}" id="dcut" aria-label="เปิด/ปิดตัดสต๊อกอัตโนมัติ"></button>`:`<span class="badge ${cut?'grn':'gry'}">${cut?'เปิด':'ปิด'}</span>`}</div></div>
+  <button class="btn block" onclick="xDlg()" style="margin-bottom:6px">${ic('plus')}เพิ่มรายการสินค้า</button>
+  <div class="hint" style="margin:0 4px 12px;text-align:center">รายการที่เพิ่มตรงนี้ใช้นับยอดรายวันเท่านั้น ไม่เกี่ยวกับสต๊อก</div>
   <div class="searchbar">${ic('search')}<input id="dq" placeholder="ค้นหาสินค้า / ยิงบาร์โค้ด" value="${esc(D.q)}" autocomplete="off"><button class="btn" id="dscan" aria-label="สแกนด้วยกล้อง">${ic('scan',22)}</button></div>
   <div id="dl"></div>`;
   $('#ddate').onchange=e=>{if(!e.target.value)return;dFlush();D.date=e.target.value>today?today:e.target.value;vDaily()};
@@ -726,8 +733,17 @@ function dTotals(){const el=$('#dsum');if(!el)return;const t=dDayTotals(D.date);
   el.innerHTML=`<div class="stat"><small>ยอดขาย (บาท)</small><b>${money(t.amt)}</b></div><div class="stat"><small>จำนวน (ชิ้น)</small><b>${money(t.q)}</b></div><div class="stat"><small>สินค้าที่ขาย</small><b>${t.n}</b></div><div class="stat"><small>กำไรโดยประมาณ (บาท)</small><b>${money(t.profit)}</b></div>`}
 function dList(){const el=$('#dl');if(!el)return;
   const l=S.products.filter(p=>matchP(p,D.q)).sort((a,b)=>a.name.localeCompare(b.name,'th'));
-  if(!l.length){el.innerHTML=`<div class="empty">${ic('box')}<div>${S.products.length?'ไม่พบสินค้า':'ยังไม่มีสินค้า — เพิ่มที่เมนูสินค้าก่อน'}</div></div>`;return}
-  el.innerHTML=`<div class="plist">`+l.map(p=>{const x=dGet(D.date,p.id);
+  const xs=S.extras.filter(e=>matchP(e,D.q)).sort((a,b)=>a.name.localeCompare(b.name,'th'));
+  if(!l.length&&!xs.length){el.innerHTML=`<div class="empty">${ic('box')}<div>${S.products.length||S.extras.length?'ไม่พบสินค้า':'ยังไม่มีสินค้า — เพิ่มที่เมนูสินค้า หรือกด "เพิ่มรายการสินค้า"'}</div></div>`;return}
+  const head=(i,t)=>`<div class="muted" style="font-size:13px;margin:4px 4px 8px">${ic(i,14)} ${t}</div>`;
+  // รายการนอกสต๊อก: ไม่มี "คงเหลือ" และไม่ถูกหักสต๊อก (dFlush ตัดสต๊อกเฉพาะ id ที่อยู่ในรายการสินค้าเท่านั้น)
+  const xh=xs.length?head('list',`รายการนอกสต๊อก (${xs.length})`)+`<div class="plist" style="margin-bottom:16px">`+xs.map(e=>{const x=dGet(D.date,e.id);
+    return `<div class="prod" id="dr-${e.id}" style="cursor:default;${x.q?'border-color:#ff7a0066':''}"><div class="thumb" style="color:var(--or2)">${ic('list')}</div><div class="info">
+      <div class="nm"><button data-xe="${e.id}" title="แก้ไข/ลบรายการ" style="padding:0;font-weight:700;text-align:left;max-width:100%;overflow:hidden;text-overflow:ellipsis">${esc(e.name)} ${ic('edit',13)}</button></div>
+      <div class="sk"><span class="badge gry" style="font-size:11px;padding:1px 7px">นอกสต๊อก</span> · <button class="dprice" data-pr="${e.id}" title="แตะเพื่อแก้ราคาของวันนี้">฿${money(x.price)}/ชิ้น</button></div>
+      <div class="row" style="margin-top:6px;gap:8px"><div class="stepper sm"><button data-dm="${e.id}" aria-label="ลด">${ic('minus')}</button><b id="dq-${e.id}" class="dqn">${x.q}</b><button class="p" data-dp="${e.id}" aria-label="เพิ่ม">${ic('plus')}</button></div>
+      <span class="muted" style="font-size:13px;white-space:nowrap">= <b id="ds-${e.id}" style="color:var(--or)">฿${money(x.q*x.price)}</b></span></div></div></div>`}).join('')+`</div>`:'';
+  el.innerHTML=xh+(l.length&&xs.length?head('box',`สินค้าในสต๊อก (${l.length})`):'')+`<div class="plist">`+l.map(p=>{const x=dGet(D.date,p.id);
     return `<div class="prod" id="dr-${p.id}" style="cursor:default;${x.q?'border-color:#ff7a0066':''}">${thumb(p)}<div class="info"><div class="nm">${esc(p.name)}</div>
       <div class="sk">คงเหลือ ${p.qty} · <button class="dprice" data-pr="${p.id}" title="แตะเพื่อแก้ราคาของวันนี้">฿${money(x.price)}/ชิ้น</button></div>
       <div class="row" style="margin-top:6px;gap:8px"><div class="stepper sm"><button data-dm="${p.id}" aria-label="ลด">${ic('minus')}</button><b id="dq-${p.id}" class="dqn">${x.q}</b><button class="p" data-dp="${p.id}" aria-label="เพิ่ม">${ic('plus')}</button></div>
@@ -735,6 +751,7 @@ function dList(){const el=$('#dl');if(!el)return;
   el.querySelectorAll('[data-dp]').forEach(b=>b.onclick=()=>dTap(b.dataset.dp,1));
   el.querySelectorAll('[data-dm]').forEach(b=>b.onclick=()=>dTap(b.dataset.dm,-1));
   el.querySelectorAll('[data-pr]').forEach(b=>b.onclick=()=>dPrice(b.dataset.pr));
+  el.querySelectorAll('[data-xe]').forEach(b=>b.onclick=()=>xDlg(b.dataset.xe));
 }
 function dRow(pid){const x=dGet(D.date,pid),a=$('#dq-'+pid),b=$('#ds-'+pid),r=$('#dr-'+pid);
   if(a)a.textContent=x.q;if(b)b.textContent='฿'+money(x.q*x.price);if(r)r.style.borderColor=x.q?'#ff7a0066':''}
@@ -745,7 +762,7 @@ function dScan(code){code=(code||'').trim();if(!code||D.view!=='day')return fals
   const r=$('#dr-'+p.id);if(r){r.scrollIntoView({block:'center',behavior:'smooth'});r.classList.add('flash');setTimeout(()=>r.classList.remove('flash'),700)}
   return true}
 function dShift(n){dFlush();const d=new Date(D.date+'T00:00');d.setDate(d.getDate()+n);const s=ymd(d);if(s>ymd(new Date()))return;D.date=s;vDaily()}
-function dPrice(pid){if(!canEdit())return needEdit();const x=dGet(D.date,pid),p=P(pid);
+function dPrice(pid){if(!canEdit())return needEdit();const x=dGet(D.date,pid),p=P(pid)||XI(pid);
   const ov=modal(`<h3>${ic('coin')}ราคาขายของวัน${closeBtn}</h3><div class="muted" style="font-size:13px">${esc(x.name)} · ${dLabel(D.date)} · ราคาปกติ ฿${money(p?p.price:0)}</div>
     <label>ราคาต่อชิ้น (บาท)</label><input id="dpv" type="number" inputmode="decimal" value="${x.price}">
     <div class="hint">ใช้เฉพาะวันนี้ (เช่น ลดราคา/โปรโมชัน) ไม่เปลี่ยนราคาสินค้าหลัก</div><button class="btn block" id="dps" style="margin-top:14px">บันทึก</button>`);
@@ -753,6 +770,22 @@ function dPrice(pid){if(!canEdit())return needEdit();const x=dGet(D.date,pid),p=
     const day=S.daily[date]=S.daily[date]||{date,items:{}};day.items=day.items||{};day.items[pid]=Object.assign({},day.items[pid],{price:v,name:x.name});
     FS.setDoc(FS.doc(db,'shops',shopId,'daily',date),{date,month:date.slice(0,7),items:{[pid]:{price:v,name:x.name}}},{merge:true}).catch(wErr);
     closeModal(ov);dList();dTotals();toast('บันทึกราคาแล้ว')}}
+/* เพิ่ม/แก้ไข "รายการสินค้า" นอกสต๊อก — เก็บที่ shops/{shop}/dailyItems ไม่แตะ products / movements */
+function xDlg(id){if(!canEdit())return needEdit();const e=id?XI(id):{name:'',price:''};if(!e)return;
+  const ov=modal(`<h3>${ic(id?'edit':'plus')}${id?'แก้ไขรายการสินค้า':'เพิ่มรายการสินค้า'}${closeBtn}</h3>
+    <div class="hint" style="margin-top:0">ใช้นับยอดในเมนูนับรายวันเท่านั้น <b>ไม่เกี่ยวกับสต๊อก</b> (ไม่ตัด ไม่เพิ่ม ไม่ลงประวัติสต๊อก)</div>
+    <label>ชื่อรายการ *</label><input id="xn" value="${esc(e.name)}" placeholder="เช่น กาแฟเย็น, ค่าบริการ, สินค้าฝากขาย">
+    <label>ราคาต่อชิ้น (บาท)</label><input id="xp" type="number" inputmode="decimal" value="${e.price}">
+    <div class="row" style="margin-top:18px">${id?`<button class="btn red" id="xd" style="padding:12px 14px" aria-label="ลบรายการ">${ic('trash')}</button>`:''}<button class="btn block" id="xs">บันทึก</button></div>
+    ${id?'<div class="hint">ลบรายการแล้ว ยอดที่บันทึกไว้ในวันก่อนๆ ยังอยู่ครบ</div>':''}`);
+  setTimeout(()=>ov.querySelector('#xn').focus(),50);
+  ov.querySelector('#xs').onclick=()=>{const name=ov.querySelector('#xn').value.trim();if(!name)return toast('กรุณาใส่ชื่อรายการ','err');
+    const xid=id||uid('x'),data={name,price:num(ov.querySelector('#xp').value),updatedAt:Date.now(),createdAt:e.createdAt||Date.now()};
+    const i=S.extras.findIndex(x=>x.id===xid),rec=Object.assign({id:xid},data);if(i>=0)S.extras[i]=rec;else S.extras.push(rec);
+    FS.setDoc(FS.doc(db,'shops',shopId,'dailyItems',xid),data).catch(wErr);closeModal(ov);dList();toast(id?'แก้ไขรายการแล้ว':'เพิ่มรายการแล้ว')};
+  const d=ov.querySelector('#xd');if(d)d.onclick=()=>confirmBox(`ลบ "<b>${esc(e.name)}</b>" ออกจากรายการ?`,()=>{
+    S.extras=S.extras.filter(x=>x.id!==id);FS.deleteDoc(FS.doc(db,'shops',shopId,'dailyItems',id)).catch(wErr);closeModal(ov);dList();toast('ลบรายการแล้ว')},'ลบ');
+}
 function dMonthV(){
   const {m,rows,tot,top}=dMonthData(),[y,mm]=m.split('-').map(Number),max=Math.max(1,...rows.map(r=>r.amt));
   const pie=top.slice(0,5).map(a=>({n:a.n,v:Math.round(a.amt)})),rest=top.slice(5).reduce((s,a)=>s+a.amt,0);if(rest)pie.push({n:'อื่นๆ',v:Math.round(rest)});
