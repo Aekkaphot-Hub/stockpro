@@ -695,12 +695,12 @@ function dFlush(){clearTimeout(dTimer);const ks=Object.keys(dpend).filter(k=>dpe
 document.addEventListener('visibilitychange',()=>{if(document.hidden)dFlush()});
 function dDayTotals(date){const ids=new Set(Object.keys(((S.daily[date]||{}).items)||{}));
   Object.keys(dpend).forEach(k=>{const[d,p]=k.split('|');if(d===date)ids.add(p)});
-  let amt=0,q=0,n=0,profit=0;
-  ids.forEach(pid=>{const x=dGet(date,pid),p=P(pid);if(x.q>0){amt+=x.q*x.price;q+=x.q;n++;profit+=x.q*(x.price-(p?num(p.cost):0))}});
-  return {amt,q,n,profit}}
+  let amt=0,q=0,n=0,cost=0;
+  ids.forEach(pid=>{const x=dGet(date,pid),p=P(pid)||XI(pid);if(x.q>0){amt+=x.q*x.price;q+=x.q;n++;cost+=x.q*(p?num(p.cost):0)}});
+  return {amt,q,n,cost}}
 function dMonthData(){const m=D.date.slice(0,7),days=Object.keys(S.daily).filter(k=>k.startsWith(m)).sort();
   const rows=days.map(d=>Object.assign({d},dDayTotals(d))).filter(r=>r.q>0);
-  const tot=rows.reduce((s,r)=>({amt:s.amt+r.amt,q:s.q+r.q,profit:s.profit+r.profit}),{amt:0,q:0,profit:0});
+  const tot=rows.reduce((s,r)=>({amt:s.amt+r.amt,q:s.q+r.q,cost:s.cost+r.cost}),{amt:0,q:0,cost:0});
   const agg={};days.forEach(d=>Object.keys(S.daily[d].items||{}).forEach(pid=>{const x=dGet(d,pid);if(x.q>0){const a=agg[pid]=agg[pid]||{n:x.name,q:0,amt:0};a.q+=x.q;a.amt+=x.q*x.price}}));
   return {m,rows,tot,top:Object.values(agg).sort((a,b)=>b.amt-a.amt)}}
 function vDaily(){
@@ -730,7 +730,7 @@ function dDay(){
   dTotals();dList();
 }
 function dTotals(){const el=$('#dsum');if(!el)return;const t=dDayTotals(D.date);
-  el.innerHTML=`<div class="stat"><small>ยอดขาย (บาท)</small><b>${money(t.amt)}</b></div><div class="stat"><small>จำนวน (ชิ้น)</small><b>${money(t.q)}</b></div><div class="stat"><small>สินค้าที่ขาย</small><b>${t.n}</b></div><div class="stat"><small>กำไรโดยประมาณ (บาท)</small><b>${money(t.profit)}</b></div>`}
+  el.innerHTML=`<div class="stat"><small>ยอดขาย (บาท)</small><b>${money(t.amt)}</b></div><div class="stat"><small>จำนวน (ชิ้น)</small><b>${money(t.q)}</b></div><div class="stat"><small>สินค้าที่ขาย</small><b>${t.n}</b></div><div class="stat"><small>ทุน (บาท)</small><b>${money(t.cost)}</b></div>`}
 function dList(){const el=$('#dl');if(!el)return;
   const l=S.products.filter(p=>matchP(p,D.q)).sort((a,b)=>a.name.localeCompare(b.name,'th'));
   const xs=S.extras.filter(e=>matchP(e,D.q)).sort((a,b)=>a.name.localeCompare(b.name,'th'));
@@ -775,12 +775,12 @@ function xDlg(id){if(!canEdit())return needEdit();const e=id?XI(id):{name:'',pri
   const ov=modal(`<h3>${ic(id?'edit':'plus')}${id?'แก้ไขรายการสินค้า':'เพิ่มรายการสินค้า'}${closeBtn}</h3>
     <div class="hint" style="margin-top:0">ใช้นับยอดในเมนูนับรายวันเท่านั้น <b>ไม่เกี่ยวกับสต๊อก</b> (ไม่ตัด ไม่เพิ่ม ไม่ลงประวัติสต๊อก)</div>
     <label>ชื่อรายการ *</label><input id="xn" value="${esc(e.name)}" placeholder="เช่น กาแฟเย็น, ค่าบริการ, สินค้าฝากขาย">
-    <label>ราคาต่อชิ้น (บาท)</label><input id="xp" type="number" inputmode="decimal" value="${e.price}">
+    <div class="grid2"><div><label>ราคาขายต่อชิ้น (บาท)</label><input id="xp" type="number" inputmode="decimal" value="${e.price}"></div><div><label>ราคาทุนต่อชิ้น (บาท)</label><input id="xc" type="number" inputmode="decimal" value="${e.cost??""}" placeholder="ไม่ใส่ก็ได้"></div></div>
     <div class="row" style="margin-top:18px">${id?`<button class="btn red" id="xd" style="padding:12px 14px" aria-label="ลบรายการ">${ic('trash')}</button>`:''}<button class="btn block" id="xs">บันทึก</button></div>
     ${id?'<div class="hint">ลบรายการแล้ว ยอดที่บันทึกไว้ในวันก่อนๆ ยังอยู่ครบ</div>':''}`);
   setTimeout(()=>ov.querySelector('#xn').focus(),50);
   ov.querySelector('#xs').onclick=()=>{const name=ov.querySelector('#xn').value.trim();if(!name)return toast('กรุณาใส่ชื่อรายการ','err');
-    const xid=id||uid('x'),data={name,price:num(ov.querySelector('#xp').value),updatedAt:Date.now(),createdAt:e.createdAt||Date.now()};
+    const xid=id||uid('x'),data={name,price:num(ov.querySelector('#xp').value),cost:num(ov.querySelector('#xc').value),updatedAt:Date.now(),createdAt:e.createdAt||Date.now()};
     const i=S.extras.findIndex(x=>x.id===xid),rec=Object.assign({id:xid},data);if(i>=0)S.extras[i]=rec;else S.extras.push(rec);
     FS.setDoc(FS.doc(db,'shops',shopId,'dailyItems',xid),data).catch(wErr);closeModal(ov);dList();toast(id?'แก้ไขรายการแล้ว':'เพิ่มรายการแล้ว')};
   const d=ov.querySelector('#xd');if(d)d.onclick=()=>confirmBox(`ลบ "<b>${esc(e.name)}</b>" ออกจากรายการ?`,()=>{
