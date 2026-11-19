@@ -194,6 +194,9 @@ td.n,th.n{text-align:right}
 .dqn{min-width:54px;text-align:center;font-size:22px;color:var(--or);font-variant-numeric:tabular-nums}
 .dprice{color:var(--or2);font-weight:700;padding:0;text-decoration:underline dotted;font-size:12px}
 .prod.flash{box-shadow:0 0 0 2px var(--or)}
+.dsec{display:flex;align-items:center;gap:7px;width:100%;padding:11px 14px;margin:4px 0 10px;background:var(--card);border:1px solid var(--line);border-radius:14px;font-size:14px;font-weight:700;text-align:left;flex-wrap:wrap}
+.dsec .sp{flex:1}.dsec .chev{display:inline-flex;color:var(--or);transition:transform .15s}
+.dsec.off .chev{transform:rotate(-90deg)}.dsec.off{border-color:#ff7a0055}
 nav button span{white-space:nowrap}
 @media(max-width:420px){nav button{font-size:11px;letter-spacing:-.2px}}
 #ddate{width:auto;padding:5px 10px;margin-top:4px;font-size:13px;color-scheme:dark}
@@ -234,7 +237,7 @@ alert:'<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17
 dl:'<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',ul:'<path d="M12 15V3M7 8l5-5 5 5M5 21h14"/>',
 cam:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
 clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-l:'<path d="M15 18l-6-6 6-6"/>',r:'<path d="M9 18l6-6-6-6"/>',
+l:'<path d="M15 18l-6-6 6-6"/>',chev:'<path d="M6 9l6 6 6-6"/>',r:'<path d="M9 18l6-6-6-6"/>',
 fire:'<path d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 3-7 1 1 2 2 3 2 0-3-1-5 0-7z"/>',
 coin:'<circle cx="12" cy="12" r="9"/><path d="M14.5 9a2.5 2 0 0 0-2.5-1.5c-1.5 0-2.5.8-2.5 1.8s1 1.5 2.5 1.7 2.5.7 2.5 1.8-1 1.7-2.5 1.7A2.5 2 0 0 1 9.5 15M12 6v1.5M12 16.5V18"/>',
 list:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
@@ -735,26 +738,40 @@ function dList(){const el=$('#dl');if(!el)return;
   const l=S.products.filter(p=>matchP(p,D.q)).sort((a,b)=>a.name.localeCompare(b.name,'th'));
   const xs=S.extras.filter(e=>matchP(e,D.q)).sort((a,b)=>a.name.localeCompare(b.name,'th'));
   if(!l.length&&!xs.length){el.innerHTML=`<div class="empty">${ic('box')}<div>${S.products.length||S.extras.length?'ไม่พบสินค้า':'ยังไม่มีสินค้า — เพิ่มที่เมนูสินค้า หรือกด "เพิ่มรายการสินค้า"'}</div></div>`;return}
-  const head=(i,t)=>`<div class="muted" style="font-size:13px;margin:4px 4px 8px">${ic(i,14)} ${t}</div>`;
+  // ปุ่ม −  [ช่องจำนวน พิมพ์แก้ได้]  +
+  const step=(id,x)=>`<div class="row" style="margin-top:6px;gap:8px"><div class="stepper sm"><button data-dm="${id}" aria-label="ลด">${ic('minus')}</button><input type="number" inputmode="numeric" min="0" id="dq-${id}" data-dv="${id}" value="${x.q}" aria-label="จำนวน"><button class="p" data-dp="${id}" aria-label="เพิ่ม">${ic('plus')}</button></div>
+      <span class="muted" style="font-size:13px;white-space:nowrap">= <b id="ds-${id}" style="color:var(--or)">฿${money(x.q*x.price)}</b></span></div>`;
+  // แถบหัวกลุ่ม กดเพื่อย่อ/แสดงรายการ (จำไว้ในเครื่อง) — ระหว่างค้นหาจะแสดงทั้งหมดเสมอ
+  const sec=(key,i,t,ids)=>{dSecIds[key]=ids;const off=!!DC[key]&&!D.q;
+    return {off,h:`<button class="dsec ${off?'off':''}" data-sec="${key}" aria-expanded="${!off}"><span class="chev">${ic('chev',16)}</span>${ic(i,15)}<span>${t} (${ids.length})</span><span class="muted" id="sec-${key}" style="font-weight:400;font-size:12px">${dSecSum(ids)}</span><span class="sp"></span><span class="muted" style="font-weight:400;font-size:12px">${off?'แสดง':'ย่อ'}</span></button>`}};
+  dSecIds={};
+  const xsec=xs.length?sec('x','list','รายการนอกสต๊อก',xs.map(e=>e.id)):null,psec=l.length?sec('p','box','สินค้าในสต๊อก',l.map(p=>p.id)):null;
   // รายการนอกสต๊อก: ไม่มี "คงเหลือ" และไม่ถูกหักสต๊อก (dFlush ตัดสต๊อกเฉพาะ id ที่อยู่ในรายการสินค้าเท่านั้น)
-  const xh=xs.length?head('list',`รายการนอกสต๊อก (${xs.length})`)+`<div class="plist" style="margin-bottom:16px">`+xs.map(e=>{const x=dGet(D.date,e.id);
+  const xh=!xsec?'':xsec.h+(xsec.off?'':`<div class="plist" style="margin-bottom:12px">`+xs.map(e=>{const x=dGet(D.date,e.id);
     return `<div class="prod" id="dr-${e.id}" style="cursor:default;${x.q?'border-color:#ff7a0066':''}"><div class="thumb" style="color:var(--or2)">${ic('list')}</div><div class="info">
       <div class="nm"><button data-xe="${e.id}" title="แก้ไข/ลบรายการ" style="padding:0;font-weight:700;text-align:left;max-width:100%;overflow:hidden;text-overflow:ellipsis">${esc(e.name)} ${ic('edit',13)}</button></div>
       <div class="sk"><span class="badge gry" style="font-size:11px;padding:1px 7px">นอกสต๊อก</span> · <button class="dprice" data-pr="${e.id}" title="แตะเพื่อแก้ราคาของวันนี้">฿${money(x.price)}/ชิ้น</button></div>
-      <div class="row" style="margin-top:6px;gap:8px"><div class="stepper sm"><button data-dm="${e.id}" aria-label="ลด">${ic('minus')}</button><b id="dq-${e.id}" class="dqn">${x.q}</b><button class="p" data-dp="${e.id}" aria-label="เพิ่ม">${ic('plus')}</button></div>
-      <span class="muted" style="font-size:13px;white-space:nowrap">= <b id="ds-${e.id}" style="color:var(--or)">฿${money(x.q*x.price)}</b></span></div></div></div>`}).join('')+`</div>`:'';
-  el.innerHTML=xh+(l.length&&xs.length?head('box',`สินค้าในสต๊อก (${l.length})`):'')+`<div class="plist">`+l.map(p=>{const x=dGet(D.date,p.id);
+      ${step(e.id,x)}</div></div>`}).join('')+`</div>`);
+  const ph=!psec?'':psec.h+(psec.off?'':`<div class="plist">`+l.map(p=>{const x=dGet(D.date,p.id);
     return `<div class="prod" id="dr-${p.id}" style="cursor:default;${x.q?'border-color:#ff7a0066':''}">${thumb(p)}<div class="info"><div class="nm">${esc(p.name)}</div>
       <div class="sk">คงเหลือ ${p.qty} · <button class="dprice" data-pr="${p.id}" title="แตะเพื่อแก้ราคาของวันนี้">฿${money(x.price)}/ชิ้น</button></div>
-      <div class="row" style="margin-top:6px;gap:8px"><div class="stepper sm"><button data-dm="${p.id}" aria-label="ลด">${ic('minus')}</button><b id="dq-${p.id}" class="dqn">${x.q}</b><button class="p" data-dp="${p.id}" aria-label="เพิ่ม">${ic('plus')}</button></div>
-      <span class="muted" style="font-size:13px;white-space:nowrap">= <b id="ds-${p.id}" style="color:var(--or)">฿${money(x.q*x.price)}</b></span></div></div></div>`}).join('')+`</div>`;
+      ${step(p.id,x)}</div></div>`}).join('')+`</div>`);
+  el.innerHTML=xh+ph;
   el.querySelectorAll('[data-dp]').forEach(b=>b.onclick=()=>dTap(b.dataset.dp,1));
   el.querySelectorAll('[data-dm]').forEach(b=>b.onclick=()=>dTap(b.dataset.dm,-1));
   el.querySelectorAll('[data-pr]').forEach(b=>b.onclick=()=>dPrice(b.dataset.pr));
   el.querySelectorAll('[data-xe]').forEach(b=>b.onclick=()=>xDlg(b.dataset.xe));
+  el.querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>{const k=b.dataset.sec;DC[k]=!DC[k];try{localStorage.setItem('stockpro_dcol',JSON.stringify(DC))}catch(e){}dList()});
+  el.querySelectorAll('[data-dv]').forEach(e=>{   // พิมพ์จำนวนโดยตรง → บันทึกเป็นส่วนต่างจากค่าเดิม
+    e.onfocus=()=>e.select();
+    e.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();e.blur()}};
+    e.onchange=()=>{const id=e.dataset.dv,cur=dGet(D.date,id).q,v=Math.max(0,Math.floor(num(e.value))||0);if(v!==cur)dTap(id,v-cur);dRow(id,true)}});
 }
-function dRow(pid){const x=dGet(D.date,pid),a=$('#dq-'+pid),b=$('#ds-'+pid),r=$('#dr-'+pid);
-  if(a)a.textContent=x.q;if(b)b.textContent='฿'+money(x.q*x.price);if(r)r.style.borderColor=x.q?'#ff7a0066':''}
+let DC={},dSecIds={};try{DC=JSON.parse(localStorage.getItem('stockpro_dcol'))||{}}catch(e){}
+function dSecSum(ids){let q=0,a=0;ids.forEach(id=>{const x=dGet(D.date,id);q+=x.q;a+=x.q*x.price});return q?` · นับแล้ว ${money(q)} ชิ้น ฿${money(a)}`:''}
+function dRow(pid,force){const x=dGet(D.date,pid),a=$('#dq-'+pid),b=$('#ds-'+pid),r=$('#dr-'+pid);
+  if(a&&(force||document.activeElement!==a))a.value=x.q;if(b)b.textContent='฿'+money(x.q*x.price);if(r)r.style.borderColor=x.q?'#ff7a0066':'';
+  Object.keys(dSecIds).forEach(k=>{const s=$('#sec-'+k);if(s)s.textContent=dSecSum(dSecIds[k])})}
 function dScan(code){code=(code||'').trim();if(!code||D.view!=='day')return false;const p=findByCode(code);
   if(!p){beep(false);toast('ไม่พบรหัส '+code,'err');return false}
   if(!canEdit()){needEdit();return false}
