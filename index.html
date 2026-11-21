@@ -197,6 +197,8 @@ td.n,th.n{text-align:right}
 .dsec{display:flex;align-items:center;gap:7px;width:100%;padding:11px 14px;margin:4px 0 10px;background:var(--card);border:1px solid var(--line);border-radius:14px;font-size:14px;font-weight:700;text-align:left;flex-wrap:wrap}
 .dsec .sp{flex:1}.dsec .chev{display:inline-flex;color:var(--or);transition:transform .15s}
 .dsec.off .chev{transform:rotate(-90deg)}.dsec.off{border-color:#ff7a0055}
+.hrow{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;text-align:left}
+.hrow .chev{display:inline-flex;color:var(--mu);transition:transform .15s;transform:rotate(-90deg)}.hrow.on .chev{transform:none;color:var(--or)}
 nav button span{white-space:nowrap}
 @media(max-width:420px){nav button{font-size:11px;letter-spacing:-.2px}}
 #ddate{width:auto;padding:5px 10px;margin-top:4px;font-size:13px;color-scheme:dark}
@@ -692,6 +694,7 @@ function dFlush(){clearTimeout(dTimer);const ks=Object.keys(dpend).filter(k=>dpe
   const wb=mkBatch(),today=ymd(new Date());
   ks.forEach(k=>{const [date,pid]=k.split('|'),d=dpend[k],x=dGet(date,pid);
     wb.set(FS.doc(db,'shops',shopId,'daily',date),{date,month:date.slice(0,7),updatedAt:Date.now(),items:{[pid]:{q:FS.increment(d),price:x.price,name:x.name}}},{merge:true});
+    wb.set(FS.doc(db,'shops',shopId,'dailyLog',uid('l')),{date,ts:Date.now(),pid,name:x.name,delta:d,after:x.q,price:x.price,user:S.settings.user||''});   // บันทึกการเพิ่ม/ลดแต่ละครั้ง (ดูในหน้าประวัติ)
     const day=S.daily[date]=S.daily[date]||{date,items:{}};day.items=day.items||{};day.items[pid]=Object.assign({},day.items[pid],{q:x.q,price:x.price,name:x.name});   // อัปเดตในเครื่องทันที
     if(S.dailyCut!==false&&P(pid))applyMovement(pid,d>0?'out':'adjust',-d,(d>0?'ขายรายวัน ':'แก้ยอดขายรายวัน ')+date,date===today?Date.now():new Date(date+'T12:00').getTime(),wb)});
   dpend={};wb.commit().catch(wErr)}
@@ -709,8 +712,8 @@ function dMonthData(){const m=D.date.slice(0,7),days=Object.keys(S.daily).filter
 function vDaily(){
   dListen();
   $('#view').innerHTML=`${roBanner()}<h2>${ic('calendar',26)}นับสินค้ารายวัน<span class="sp"></span><button class="btn sm" style="background:linear-gradient(135deg,#06c755,#3be07f);color:#04230f;box-shadow:none" onclick="dFlush();lineDlg('daily')">${ic('send',16)}LINE</button></h2>
-  <div class="tabs"><button class="tab ${D.view==='day'?'on':''}" onclick="dFlush();D.view='day';vDaily()">${ic('calendar',16)}รายวัน</button><button class="tab ${D.view==='month'?'on':''}" onclick="dFlush();D.view='month';vDaily()">${ic('pie',16)}สรุปรายเดือน</button></div><div id="db"></div>`;
-  D.view==='day'?dDay():dMonthV();
+  <div class="tabs"><button class="tab ${D.view==='day'?'on':''}" onclick="dFlush();D.view='day';vDaily()">${ic('calendar',16)}รายวัน</button><button class="tab ${D.view==='month'?'on':''}" onclick="dFlush();D.view='month';vDaily()">${ic('pie',16)}สรุปรายเดือน</button><button class="tab ${D.view==='hist'?'on':''}" onclick="dFlush();hReset();D.view='hist';vDaily()">${ic('clock',16)}ประวัติ</button></div><div id="db"></div>`;
+  ({day:dDay,month:dMonthV,hist:dHist})[D.view]();
 }
 function dDay(){
   const today=ymd(new Date()),isToday=D.date===today,cut=S.dailyCut!==false;
@@ -786,6 +789,7 @@ function dPrice(pid){if(!canEdit())return needEdit();const x=dGet(D.date,pid),p=
   ov.querySelector('#dps').onclick=()=>{const v=num(ov.querySelector('#dpv').value),date=D.date;dFlush();
     const day=S.daily[date]=S.daily[date]||{date,items:{}};day.items=day.items||{};day.items[pid]=Object.assign({},day.items[pid],{price:v,name:x.name});
     FS.setDoc(FS.doc(db,'shops',shopId,'daily',date),{date,month:date.slice(0,7),items:{[pid]:{price:v,name:x.name}}},{merge:true}).catch(wErr);
+    if(v!==x.price)FS.setDoc(FS.doc(db,'shops',shopId,'dailyLog',uid('l')),{date,ts:Date.now(),pid,name:x.name,type:'price',prev:x.price,price:v,user:S.settings.user||''}).catch(()=>{});
     closeModal(ov);dList();dTotals();toast('บันทึกราคาแล้ว')}}
 /* เพิ่ม/แก้ไข "รายการสินค้า" นอกสต๊อก — เก็บที่ shops/{shop}/dailyItems ไม่แตะ products / movements */
 function xDlg(id){if(!canEdit())return needEdit();const e=id?XI(id):{name:'',price:''};if(!e)return;
@@ -802,6 +806,56 @@ function xDlg(id){if(!canEdit())return needEdit();const e=id?XI(id):{name:'',pri
     FS.setDoc(FS.doc(db,'shops',shopId,'dailyItems',xid),data).catch(wErr);closeModal(ov);dList();toast(id?'แก้ไขรายการแล้ว':'เพิ่มรายการแล้ว')};
   const d=ov.querySelector('#xd');if(d)d.onclick=()=>confirmBox(`ลบ "<b>${esc(e.name)}</b>" ออกจากรายการ?`,()=>{
     S.extras=S.extras.filter(x=>x.id!==id);FS.deleteDoc(FS.doc(db,'shops',shopId,'dailyItems',id)).catch(wErr);closeModal(ov);dList();toast('ลบรายการแล้ว')},'ลบ');
+}
+/* ===== ประวัติการนับรายวัน: ทุกวันย้อนหลัง (โหลดทีละ 31 วัน) ===== */
+let H={docs:[],last:null,done:false,loading:false,open:{},logs:{}};
+function hReset(){H={docs:[],last:null,done:false,loading:false,open:{},logs:{}}}
+/* โหลดบันทึกการเพิ่ม/ลดของวันนั้น (โหลดใหม่ทุกครั้งที่เปิดดู) */
+async function hLogLoad(day){H.logs[day]='loading';hRender();
+  try{const sn=await FS.getDocs(FS.query(FS.collection(db,'shops',shopId,'dailyLog'),FS.where('date','==',day)));
+    H.logs[day]=sn.docs.map(d=>d.data()).sort((a,b)=>a.ts-b.ts)}
+  catch(e){H.logs[day]=[];wErr(e)}
+  hRender()}
+function hLogHtml(day){const lg=H.logs[day];
+  const body=(lg===undefined||lg==='loading')?'<div class="muted" style="font-size:13px;padding:8px 0">กำลังโหลด…</div>'
+    :!lg.length?'<div class="muted" style="font-size:13px;padding:8px 0">ยังไม่มีบันทึกการเพิ่ม/ลดของวันนี้ (เริ่มบันทึกตั้งแต่อัปเดตนี้เป็นต้นไป)</div>'
+    :lg.map(e=>{const t=new Date(e.ts).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})+' น.',who=e.user?' · '+esc(e.user):'';
+      if(e.type==='price')return `<div class="li"><div class="mi adj">${ic('coin')}</div><div class="t"><div>${esc(e.name)}</div><div>${t} · เปลี่ยนราคา ฿${money(e.prev)} → ฿${money(e.price)}${who}</div></div></div>`;
+      return `<div class="li"><div class="mi ${e.delta>0?'in':'out'}">${ic(e.delta>0?'plus':'minus')}</div><div class="t"><div>${esc(e.name)}</div><div>${t} · รวมเป็น ${money(e.after)} ชิ้น${who}</div></div><div class="d ${e.delta>0?'pos':'neg'}">${e.delta>0?'+':''}${e.delta}</div></div>`}).join('');
+  return `<div style="margin-top:14px"><div class="row"><b style="font-size:14px">${ic('clock',14)} ความเคลื่อนไหวของวัน</b><span class="sp"></span>${Array.isArray(lg)?`<span class="muted" style="font-size:12px">${lg.length} ครั้ง</span>`:''}</div>${body}</div>`}
+async function hLoad(){if(H.loading||H.done)return;H.loading=true;hRender();
+  try{const q=FS.query(FS.collection(db,'shops',shopId,'daily'),FS.orderBy('date','desc'),...(H.last?[FS.startAfter(H.last)]:[]),FS.limit(31));
+    const sn=await FS.getDocs(q);sn.docs.forEach(d=>H.docs.push(Object.assign({id:d.id},d.data())));
+    if(sn.docs.length)H.last=sn.docs[sn.docs.length-1];if(sn.docs.length<31)H.done=true}
+  catch(e){wErr(e)}
+  H.loading=false;hRender()}
+function hDay(doc){const d=S.daily[doc.id]||doc,its=d.items||{},rows=[];let amt=0,q=0,cost=0;   // เดือนที่เปิดอยู่ใช้ข้อมูลสด
+  Object.keys(its).forEach(pid=>{const it=its[pid],n=num(it.q);if(n<=0)return;const p=P(pid)||XI(pid),price=num(it.price);
+    amt+=n*price;q+=n;cost+=n*(p?num(p.cost):0);rows.push({name:it.name||(p?p.name:'(ลบแล้ว)'),q:n,price,ext:!P(pid)})});
+  rows.sort((a,b)=>b.q*b.price-a.q*a.price);return {amt,q,cost,rows}}
+function dHist(){if(!H.docs.length&&!H.done&&!H.loading)hLoad();else hRender()}
+function hRender(){const el=$('#db');if(!el||D.view!=='hist')return;
+  const map={},oldest=H.docs.length?H.docs[H.docs.length-1].id:'';H.docs.forEach(d=>{map[d.id]=d});
+  Object.keys(S.daily).forEach(k=>{if(!map[k]&&(H.done||k>=oldest))map[k]=Object.assign({id:k},S.daily[k])});
+  const days=Object.values(map).sort((a,b)=>b.id.localeCompare(a.id)).map(doc=>Object.assign({id:doc.id},hDay(doc))).filter(x=>x.q>0);
+  let html='',curM='';
+  days.forEach(x=>{const m=x.id.slice(0,7);
+    if(m!==curM){curM=m;const[yy,mm]=m.split('-').map(Number),mt=days.filter(y=>y.id.startsWith(m)).reduce((s,y)=>s+y.amt,0);
+      html+=`<div class="row" style="margin:16px 4px 8px;font-size:14px"><b>${MONTHS[mm-1]} ${yy+543}</b><span class="sp"></span><span class="muted">รวม ฿${money(mt)}</span></div>`}
+    const op=!!H.open[x.id];
+    html+=`<div class="card" style="margin-bottom:8px;padding:0;overflow:hidden;${op?'border-color:#ff7a0066':''}"><button class="hrow ${op?'on':''}" data-h="${x.id}" aria-expanded="${op}">
+      <span class="chev">${ic('chev',16)}</span><div style="flex:1;min-width:0"><div style="font-weight:700">${dLabel(x.id)}</div><div class="muted" style="font-size:12px">${money(x.q)} ชิ้น · ${x.rows.length} รายการ · ทุน ฿${money(x.cost)}</div></div><b style="color:var(--or);font-size:17px">฿${money(x.amt)}</b></button>
+      ${op?`<div style="padding:0 14px 14px;overflow:auto"><table><tr><th>รายการ</th><th class="n">จำนวน</th><th class="n">ราคา</th><th class="n">รวม</th></tr>
+        ${x.rows.map(r=>`<tr><td>${esc(r.name)}${r.ext?' <span class="badge gry" style="font-size:10px;padding:1px 6px">นอกสต๊อก</span>':''}</td><td class="n">${money(r.q)}</td><td class="n">${money(r.price)}</td><td class="n"><b>${money(r.q*r.price)}</b></td></tr>`).join('')}
+        <tr><td><b>รวม</b></td><td class="n"><b>${money(x.q)}</b></td><td></td><td class="n"><b style="color:var(--or)">${money(x.amt)}</b></td></tr></table>
+        ${hLogHtml(x.id)}
+        <button class="btn ghost sm block" data-go="${x.id}" style="margin-top:10px">${ic('edit',15)}เปิดวันนี้เพื่อดู/แก้ไข</button></div>`:''}</div>`});
+  el.innerHTML=`<div class="hint" style="margin:0 4px 4px">ประวัติการนับรายวันทุกวัน เรียงจากล่าสุด · แตะวันที่เพื่อดูรายการ</div>`+
+    (html||(H.loading?'':`<div class="empty">${ic('clock')}<div>ยังไม่มีประวัติการนับ</div></div>`))+
+    (H.loading?`<div class="empty" style="padding:16px">กำลังโหลด…</div>`:H.done?(days.length?`<div class="hint" style="text-align:center;margin:14px">— แสดงครบทุกวันแล้ว —</div>`:''):`<button class="btn dark block" id="hmore" style="margin-top:10px">${ic('clock',16)}โหลดวันที่เก่ากว่า</button>`);
+  el.querySelectorAll('[data-h]').forEach(b=>b.onclick=()=>{const k=b.dataset.h;H.open[k]=!H.open[k];if(H.open[k])hLogLoad(k);else hRender()});
+  el.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{D.date=b.dataset.go;D.view='day';vDaily()});
+  const mo=$('#hmore');if(mo)mo.onclick=hLoad;
 }
 function dMonthV(){
   const {m,rows,tot,top}=dMonthData(),[y,mm]=m.split('-').map(Number),max=Math.max(1,...rows.map(r=>r.amt));

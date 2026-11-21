@@ -63,6 +63,11 @@ service cloud.firestore {
         allow read: if isMember(shopId);
         allow create, update: if canEdit(shopId);
       }
+      // บันทึกการเพิ่ม/ลดในเมนูนับรายวัน: เพิ่มได้อย่างเดียว ห้ามแก้/ลบ
+      match /dailyLog/{id} {
+        allow read: if isMember(shopId);
+        allow create: if canEdit(shopId);
+      }
       // รายการสินค้านอกสต๊อก (ใช้เฉพาะเมนูนับรายวัน)
       match /dailyItems/{id} {
         allow read: if isMember(shopId);
