@@ -383,8 +383,19 @@ function plist(){
   const l=S.products.filter(p=>matchP(p,pq)).sort((a,b)=>a.name.localeCompare(b.name,'th'));
   if(!S.products.length){$('#pl').innerHTML=`<div class="empty">${ic('box')}<div style="font-size:18px;color:var(--tx);font-weight:700">ยังไม่มีสินค้า</div><p>กดปุ่ม <b style="color:var(--or)">+</b> เพื่อเพิ่มสินค้าชิ้นแรก<br>หรือนำเข้าจาก Excel/CSV ในเมนู ⚙ ตั้งค่า</p><button class="btn dark" onclick="demo()">ลองใส่ข้อมูลตัวอย่าง</button></div>`;return}
   if(!l.length){$('#pl').innerHTML=`<div class="empty">${ic('search')}<div>ไม่พบสินค้าที่ค้นหา</div></div>`;return}
-  $('#pl').innerHTML=`<div class="plist">`+l.map(p=>{const lw=p.qty<=p.reorder;return `<div class="prod ${lw?'low':''}" onclick="editProduct('${p.id}')">${thumb(p)}<div class="info"><div class="nm">${esc(p.name)}</div><div class="sk">${esc(p.sku||'-')}${p.cat?' · '+esc(p.cat):''}</div>${lw?`<span class="badge red">${p.qty<=0?'หมด':'ใกล้หมด'}</span>`:''}</div><div class="qty ${lw?'low':''}"><b>${p.qty}</b><small>คงเหลือ</small></div></div>`}).join('')+`</div>`;
+  // แถบย่อ/แสดงตามหมวดหมู่ (จำไว้ในเครื่อง) — ระหว่างค้นหาแสดงทุกหมวด และแถบยังเตือนของใกล้หมดแม้ย่ออยู่
+  const NOCAT='ไม่ระบุหมวด',g=Object.create(null);l.forEach(p=>{const k=(p.cat||'').trim()||NOCAT;(g[k]=g[k]||[]).push(p)});
+  const keys=Object.keys(g).sort((a,b)=>(a===NOCAT)-(b===NOCAT)||a.localeCompare(b,'th')),off=k=>!!PC['c:'+k]&&!pq.trim(),allOff=keys.every(off);
+  const row=p=>{const lw=p.qty<=p.reorder;return `<div class="prod ${lw?'low':''}" onclick="editProduct('${p.id}')">${thumb(p)}<div class="info"><div class="nm">${esc(p.name)}</div><div class="sk">${esc(p.sku||'-')}</div>${lw?`<span class="badge red">${p.qty<=0?'หมด':'ใกล้หมด'}</span>`:''}</div><div class="qty ${lw?'low':''}"><b>${p.qty}</b><small>คงเหลือ</small></div></div>`};
+  const el=$('#pl');
+  el.innerHTML=(pq.trim()?'':`<div class="row" style="margin-bottom:8px"><span class="muted" style="font-size:13px">${keys.length} หมวด · ${l.length} รายการ</span><span class="sp"></span><button class="btn ghost sm" id="ptog">${ic('chev',15)}${allOff?'แสดงทั้งหมด':'ย่อทั้งหมด'}</button></div>`)+
+    keys.map(k=>{const ps=g[k],o=off(k),low=ps.filter(p=>p.qty<=p.reorder).length,sum=ps.reduce((s,p)=>s+num(p.qty),0);
+      return `<button class="dsec ${o?'off':''}" data-ps="${esc(k)}" aria-expanded="${!o}"><span class="chev">${ic('chev',16)}</span>${ic('box',15)}<span>${esc(k)} (${ps.length})</span><span class="muted" style="font-weight:400;font-size:12px">คงเหลือ ${money(sum)}</span>${low?`<span class="badge red">ใกล้หมด ${low}</span>`:''}<span class="sp"></span><span class="muted" style="font-weight:400;font-size:12px">${o?'แสดง':'ย่อ'}</span></button>${o?'':`<div class="plist" style="margin-bottom:12px">${ps.map(row).join('')}</div>`}`}).join('');
+  el.querySelectorAll('[data-ps]').forEach(b=>b.onclick=()=>{const k='c:'+b.dataset.ps;if(PC[k])delete PC[k];else PC[k]=1;pcSave();plist()});
+  const t=$('#ptog');if(t)t.onclick=()=>{keys.forEach(k=>{if(allOff)delete PC['c:'+k];else PC['c:'+k]=1});pcSave();plist()};
 }
+let PC={};try{PC=JSON.parse(localStorage.getItem('stockpro_pcol'))||{}}catch(e){}
+const pcSave=()=>{try{localStorage.setItem('stockpro_pcol',JSON.stringify(PC))}catch(e){}};
 function editProduct(id,pre){
   if(!canEdit())return needEdit();
   const p=id?P(id):Object.assign({name:'',sku:'',barcode:'',cat:'',cost:'',price:'',qty:0,reorder:5,img:''},pre||{});
