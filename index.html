@@ -568,22 +568,33 @@ function vCount(){
   const n=Object.keys(d.counts).length;
   $('#view').innerHTML=`<h2>${ic('check',26)}กำลังนับ</h2>
   <div class="card" style="border-color:var(--or)"><div style="font-weight:800;font-size:18px">${esc(d.name)}</div><div class="muted" style="font-size:13px">${ic('clock',13)} ${fmtDT(d.countedAt)} · ${esc(d.counter)}</div>
-    <div class="row" style="margin-top:10px"><span class="badge">นับแล้ว ${n}/${S.products.length}</span><div class="sp"></div><button class="btn ghost sm" onclick="cancelCount()">ยกเลิก</button><button class="btn sm" onclick="reviewCount()">ตรวจสอบ/สรุป</button></div></div>
+    <div class="row" style="margin-top:10px"><span class="badge" id="cdone">นับแล้ว ${n}/${S.products.length}</span><div class="sp"></div><button class="btn ghost sm" onclick="cancelCount()">ยกเลิก</button><button class="btn sm" onclick="reviewCount()">ตรวจสอบ/สรุป</button></div></div>
   <div class="searchbar" style="margin-top:12px">${ic('search')}<input id="cqi" placeholder="ค้นหา หรือสแกนเพื่อ +1" value="${esc(cq)}" oninput="cq=this.value;clist()"><button class="btn" onclick="scan(c=>{const f=findByCode(c);if(f){cnt(f.id,(S.draft.counts[f.id]||0)+1);toast(f.name+' → '+S.draft.counts[f.id]);clist()}else toast('ไม่พบรหัสนี้','err')})">${ic('scan',22)}</button></div>
   <div id="cl"></div>`;
   clist();
 }
 function cnt(id,v){S.draft.counts[id]=Math.max(0,v);save()}
+/* แถบย่อ/แสดงรายการตามหมวดหมู่ (จำไว้ในเครื่อง) — ระหว่างค้นหาจะแสดงทุกหมวด */
+let CC={};try{CC=JSON.parse(localStorage.getItem('stockpro_ccol'))||{}}catch(e){}
+const ccSave=()=>{try{localStorage.setItem('stockpro_ccol',JSON.stringify(CC))}catch(e){}};
 function clist(){
-  if(!S.draft)return;const d=S.draft;
+  const el=$('#cl');if(!S.draft||!el)return;const d=S.draft,NOCAT='ไม่ระบุหมวด',isDone=p=>d.counts[p.id]!==undefined;
+  const dn=$('#cdone');if(dn)dn.textContent=`นับแล้ว ${S.products.filter(isDone).length}/${S.products.length}`;
   const l=S.products.filter(p=>matchP(p,cq)).sort((a,b)=>a.name.localeCompare(b.name,'th'));
-  if(!l.length){$('#cl').innerHTML=`<div class="empty">ไม่พบสินค้า</div>`;return}
-  $('#cl').innerHTML=l.map(p=>{const c=d.counts[p.id],done=c!==undefined;
+  if(!l.length){el.innerHTML=`<div class="empty">ไม่พบสินค้า</div>`;return}
+  const g=Object.create(null);l.forEach(p=>{const k=(p.cat||'').trim()||NOCAT;(g[k]=g[k]||[]).push(p)});
+  const keys=Object.keys(g).sort((a,b)=>(a===NOCAT)-(b===NOCAT)||a.localeCompare(b,'th')),off=k=>!!CC['c:'+k]&&!cq,allOff=keys.every(off);
+  const row=p=>{const c=d.counts[p.id],done=c!==undefined;
     return `<div class="prod" style="cursor:default;margin-bottom:8px;${done?'border-color:#ff7a0066':''}">${thumb(p)}<div class="info"><div class="nm">${esc(p.name)}</div><div class="sk">${esc(p.sku)} · ${done?`<span style="color:var(--or)">นับแล้ว</span>`:'ยังไม่นับ'}</div>
-      <div class="stepper sm" style="margin-top:6px"><button onclick="cstep('${p.id}',-1)">${ic('minus')}</button><input type="number" inputmode="numeric" placeholder="-" value="${done?c:''}" onchange="cset('${p.id}',this.value)"><button class="p" onclick="cstep('${p.id}',1)">${ic('plus')}</button><button title="ตรงตามระบบ (${p.qty})" onclick="cset('${p.id}',${p.qty})" style="width:auto;padding:0 10px;font-size:13px">=${p.qty}</button></div></div></div>`}).join('');
+      <div class="stepper sm" style="margin-top:6px"><button onclick="cstep('${p.id}',-1)">${ic('minus')}</button><input type="number" inputmode="numeric" placeholder="-" value="${done?c:''}" onchange="cset('${p.id}',this.value)"><button class="p" onclick="cstep('${p.id}',1)">${ic('plus')}</button><button title="ตรงตามระบบ (${p.qty})" onclick="cset('${p.id}',${p.qty})" style="width:auto;padding:0 10px;font-size:13px">=${p.qty}</button></div></div></div>`};
+  el.innerHTML=(cq?'':`<div class="row" style="margin-bottom:8px"><span class="muted" style="font-size:13px">${keys.length} หมวด · ${l.length} รายการ</span><span class="sp"></span><button class="btn ghost sm" id="ctog">${ic('chev',15)}${allOff?'แสดงทั้งหมด':'ย่อทั้งหมด'}</button></div>`)+
+    keys.map(k=>{const ps=g[k],x=ps.filter(isDone).length,o=off(k);
+      return `<button class="dsec ${o?'off':''}" data-cs="${esc(k)}" aria-expanded="${!o}"><span class="chev">${ic('chev',16)}</span>${ic('box',15)}<span>${esc(k)} (${ps.length})</span>${x===ps.length?'<span class="badge grn">นับครบ</span>':`<span class="muted" style="font-weight:400;font-size:12px">นับแล้ว ${x}/${ps.length}</span>`}<span class="sp"></span><span class="muted" style="font-weight:400;font-size:12px">${o?'แสดง':'ย่อ'}</span></button>${o?'':ps.map(row).join('')}`}).join('');
+  el.querySelectorAll('[data-cs]').forEach(b=>b.onclick=()=>{const k='c:'+b.dataset.cs;if(CC[k])delete CC[k];else CC[k]=1;ccSave();clist()});
+  const t=$('#ctog');if(t)t.onclick=()=>{keys.forEach(k=>{if(allOff)delete CC['c:'+k];else CC['c:'+k]=1});ccSave();clist()};
 }
 function cstep(id,d){cnt(id,(S.draft.counts[id]??0)+d);clist()}
-function cset(id,v){if(v===''){delete S.draft.counts[id];save()}else cnt(id,Math.floor(num(v)));clist();const b=document.querySelector('.badge');}
+function cset(id,v){if(v===''){delete S.draft.counts[id];save()}else cnt(id,Math.floor(num(v)));clist()}
 function startCount(){
   if(!canEdit())return needEdit();
   const dt=new Date($('#cd').value);
