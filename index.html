@@ -211,6 +211,12 @@ td.n,th.n{text-align:right}
 .pkflip{position:absolute;top:8px;right:8px;background:#000c}
 .pkerr{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:20px;background:#000e;font-size:14px}
 .pkth{width:64px;height:48px;object-fit:cover;border-radius:9px;background:#000;flex:none}
+.pkfil{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.pkfil .tab{flex:none}
+#pkd{flex:1;width:auto;min-width:0;padding:8px 12px;border-radius:99px;font-size:14px;color-scheme:dark}
+#pkd.on{border-color:var(--or);color:var(--or)}
+#pkpurge{width:100%;margin-bottom:10px;color:var(--red);border-color:#ff525266}
+#pkpurge:disabled{color:var(--mu);border-color:var(--line);cursor:default}
 nav button span{white-space:nowrap}
 @media(max-width:420px){nav button{font-size:11px;letter-spacing:-.2px}}
 #ddate{width:auto;padding:5px 10px;margin-top:4px;font-size:13px;color-scheme:dark}
@@ -897,7 +903,7 @@ function txtDaily(){
    วิดีโอเก็บใน IndexedDB ของเครื่องนี้เท่านั้น ไม่ส่งขึ้น Firebase (เขียนทีละช่วง 2 วินาที แอพค้างก็กู้คืนได้) */
 const PK_FMT=['code_128','code_39','code_93','qr_code','data_matrix'];   // ไม่อ่าน EAN/UPC เพื่อไม่ให้บาร์โค้ดบนตัวสินค้าไปสั่งเริ่มอัด
 const PK_GATHER=1500,PK_GONE=4000;   // เก็บรหัสทั้งหมดบนใบปะหน้าช่วงแรก / ต้องหายจากกล้องกี่ ms ถึงจะพร้อมหยุด
-const PK={token:0,stream:null,video:null,canvas:null,ctx:null,raf:0,scanT:0,dec:null,facing:'environment',rec:null,cand:{},block:null,q:'',metas:[],wake:null,other:'',otherT:0};
+const PK={token:0,stream:null,video:null,canvas:null,ctx:null,raf:0,scanT:0,dec:null,facing:'environment',rec:null,cand:{},block:null,q:'',day:'',purging:false,metas:[],wake:null,other:'',otherT:0};
 const fmtClock=ts=>new Date(ts).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 const fmtDur=ms=>{const s=Math.max(0,Math.round(ms/1000)),h=Math.floor(s/3600),m=Math.floor(s/60)%60;return (h?h+':'+pad(m):m)+':'+pad(s%60)};
 const fmtSize=b=>b>=1e9?(b/1e9).toFixed(2)+' GB':(b/1e6).toFixed(1)+' MB';
@@ -1012,7 +1018,12 @@ function vPack(){
   <div class="row" style="margin-top:10px"><input id="pkm" placeholder="พิมพ์เลขพัสดุ / ยิงเครื่องสแกน" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button class="btn" id="pkmb" style="flex:none">ตกลง</button></div>
   <div class="row" style="margin:20px 2px 8px"><b style="font-size:17px">วิดีโอในเครื่องนี้</b><span class="sp"></span><span class="muted" id="pku" style="font-size:12px;text-align:right"></span></div>
   <div class="searchbar">${ic('search')}<input id="pkq" placeholder="ค้นหาเลขพัสดุ" value="${esc(PK.q)}" autocomplete="off" spellcheck="false"><button class="btn" id="pkqs" aria-label="สแกนเลขพัสดุเพื่อค้นหา">${ic('scan',22)}</button></div>
+  <div class="pkfil"><button class="tab" id="pkall">ทั้งหมด</button><button class="tab" id="pktoday">วันนี้</button><input type="date" id="pkd" aria-label="เลือกวันที่ดูวิดีโอ"></div>
+  <button class="btn ghost" id="pkpurge"></button>
   <div id="pkl"></div></div>`;
+  const setDay=d=>{PK.day=d;pkList()};
+  $('#pkall').onclick=()=>setDay('');$('#pktoday').onclick=()=>setDay(ymd(new Date()));$('#pkd').onchange=e=>setDay(e.target.value);
+  $('#pkpurge').onclick=pkPurge;
   const mi=$('#pkm'),send=()=>{if(pkText(mi.value))mi.value=''};
   $('#pkmb').onclick=send;mi.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();send()}};
   $('#pkstop').onclick=()=>pkStop('manual');
@@ -1024,15 +1035,30 @@ function vPack(){
 }
 async function pkRecover(){const a=await vMetaAll();   // วิดีโอที่ค้างเพราะแอพปิดกะทันหัน → เก็บส่วนที่อัดได้
   for(const m of a)if(m.status==='rec'&&!(PK.rec&&PK.rec.m.id===m.id)){if(m.size){m.status='done';m.recovered=true;m.endedAt=m.lastAt||m.startedAt;await vMetaPut(m)}else await vDelete(m.id)}}
+/* ลบคลิปที่บันทึกเสร็จมาแล้วครบ 7 วัน (7×24 ชม.) — ลบเมื่อกดปุ่มและยืนยันเท่านั้น ไม่ลบเอง */
+const PK_KEEP=7*864e5;
+const pkOld=()=>{const t=Date.now()-PK_KEEP;return PK.metas.filter(m=>(m.endedAt||m.startedAt)<=t)};
+function pkFilterUI(){const d=$('#pkd');if(!d)return;const t=ymd(new Date());d.max=t;if(d.value!==PK.day)d.value=PK.day;
+  d.classList.toggle('on',!!PK.day&&PK.day!==t);$('#pkall').classList.toggle('on',!PK.day);$('#pktoday').classList.toggle('on',PK.day===t);
+  const o=pkOld(),b=$('#pkpurge');b.disabled=!o.length||PK.purging;
+  b.innerHTML=ic('trash')+(PK.purging?'กำลังลบ…':o.length?`ลบคลิปที่ครบ 7 วัน (${o.length} คลิป · ${fmtSize(o.reduce((s,m)=>s+(m.size||0),0))})`:'ยังไม่มีคลิปที่ครบ 7 วัน')}
+function pkPurge(){if(PK.purging)return;const old=pkOld();if(!old.length)return;
+  const size=old.reduce((s,m)=>s+(m.size||0),0),from=dLabel(ymd(new Date(old[old.length-1].startedAt))),to=dLabel(ymd(new Date(old[0].startedAt)));
+  confirmBox(`ลบคลิปที่ครบ 7 วัน <b>${old.length} คลิป</b> (${fmtSize(size)})<br><span class="muted">${from===to?from:from+' ถึง '+to}</span><br><span style="color:var(--red)">ลบออกจากเครื่องนี้ถาวร กู้คืนไม่ได้ ถ้ามีคลิปสำคัญให้บันทึกไฟล์ก่อน</span>`,async()=>{
+    PK.purging=true;pkFilterUI();let ok=0;
+    for(const m of old){try{await vDelete(m.id);ok++}catch(e){console.warn(e)}}
+    PK.purging=false;toast(ok===old.length?`ลบแล้ว ${ok} คลิป`:`ลบได้ ${ok} จาก ${old.length} คลิป`,ok===old.length?'':'err');pkList()},'ลบถาวร')}
 async function pkList(){const el=$('#pkl');if(!el)return;let all=[];try{all=await vMetaAll()}catch(e){el.innerHTML=`<div class="empty">เปิดพื้นที่เก็บวิดีโอไม่ได้</div>`;return}
   if(!$('#pkl'))return;
   PK.metas=all.filter(m=>m.shopId===shopId&&m.status==='done').sort((a,b)=>b.startedAt-a.startedAt);
-  const q=PK.q.trim().toLowerCase(),l=q?PK.metas.filter(m=>(m.codes||[m.code]).concat(m.code).some(c=>String(c).toLowerCase().includes(q))):PK.metas,show=l.slice(0,150);
+  pkFilterUI();
+  const q=PK.q.trim().toLowerCase(),l=PK.metas.filter(m=>(!PK.day||ymd(new Date(m.startedAt))===PK.day)&&(!q||(m.codes||[m.code]).concat(m.code).some(c=>String(c).toLowerCase().includes(q)))),show=l.slice(0,150);
   const used=PK.metas.reduce((s,m)=>s+(m.size||0),0),u=$('#pku');
   if(u){u.textContent=`${PK.metas.length} วิดีโอ · ${fmtSize(used)}`;if(navigator.storage&&navigator.storage.estimate)navigator.storage.estimate().then(e=>{if($('#pku')&&e.quota)$('#pku').textContent=`${PK.metas.length} วิดีโอ · ${fmtSize(used)} · เหลือ ${fmtSize(Math.max(0,e.quota-e.usage))}`}).catch(()=>{})}
-  if(!show.length){el.innerHTML=`<div class="empty">${ic('video')}<div>${q?'ไม่พบเลขพัสดุนี้':'ยังไม่มีวิดีโอ เล็งใบปะหน้าเข้ากล้องเพื่อเริ่มอัด'}</div></div>`;return}
-  let html='',day='';show.forEach(m=>{const d=ymd(new Date(m.startedAt));if(d!==day){if(day)html+='</div>';day=d;html+=`<div class="muted" style="font-size:13px;margin:12px 4px 6px">${dLabel(d)}</div><div class="card" style="padding:2px 12px">`}
-    html+=`<div class="li" data-v="${m.id}" style="cursor:pointer"><img class="pkth" src="${esc(m.thumb||'')}" alt=""><div class="t"><div>${esc(m.code)}</div><div>${fmtClock(m.startedAt)} – ${fmtClock(m.endedAt)} · ${fmtDur(m.endedAt-m.startedAt)} · ${fmtSize(m.size||0)}</div></div>${m.recovered?'<span class="badge">กู้คืน</span>':''}</div>`});
+  if(!show.length){el.innerHTML=`<div class="empty">${ic('video')}<div>${q&&PK.day?`ไม่พบเลขพัสดุนี้ในวันที่ ${dLabel(PK.day)}`:q?'ไม่พบเลขพัสดุนี้':PK.day?`ไม่มีวิดีโอในวันที่ ${dLabel(PK.day)}`:'ยังไม่มีวิดีโอ เล็งใบปะหน้าเข้ากล้องเพื่อเริ่มอัด'}</div></div>`;return}
+  const oldT=Date.now()-PK_KEEP;
+  let html=q||PK.day?`<div class="muted" style="font-size:13px;margin:2px 4px">พบ ${l.length} วิดีโอ · ${fmtSize(l.reduce((s,m)=>s+(m.size||0),0))}</div>`:'',day='';show.forEach(m=>{const d=ymd(new Date(m.startedAt));if(d!==day){if(day)html+='</div>';day=d;html+=`<div class="muted" style="font-size:13px;margin:12px 4px 6px">${dLabel(d)}</div><div class="card" style="padding:2px 12px">`}
+    html+=`<div class="li" data-v="${m.id}" style="cursor:pointer">${m.thumb?`<img class="pkth" src="${esc(m.thumb)}" alt="">`:`<div class="pkth" style="display:grid;place-items:center;color:var(--ord)">${ic('video')}</div>`}<div class="t"><div>${esc(m.code)}</div><div>${fmtClock(m.startedAt)} – ${fmtClock(m.endedAt)} · ${fmtDur(m.endedAt-m.startedAt)} · ${fmtSize(m.size||0)}</div></div>${m.recovered?'<span class="badge">กู้คืน</span>':''}${(m.endedAt||m.startedAt)<=oldT?'<span class="badge red">ครบ 7 วัน</span>':''}</div>`});
   el.innerHTML=html+'</div>'+(l.length>show.length?`<div class="hint" style="text-align:center;margin:12px">แสดงล่าสุด ${show.length} จาก ${l.length} วิดีโอ ใช้ช่องค้นหาเพื่อดูรายการอื่น</div>`:'');
   el.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>pkPlay(e.dataset.v));
 }
