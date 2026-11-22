@@ -1,4 +1,4 @@
-const CACHE = 'stockpro-v2';
+const CACHE = 'stockpro-v3';
 const FILES = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -12,13 +12,14 @@ self.addEventListener('activate', e => {
   );
 });
 
-// เก็บแคชเฉพาะไฟล์ของแอพเอง และไลบรารี Firebase จาก gstatic (เพื่อเปิดแอพตอนออฟไลน์ได้)
+// เก็บแคชเฉพาะไฟล์ของแอพเอง, ไลบรารี Firebase และตัวอ่านบาร์โค้ด ZXing (เพื่อเปิดแอพตอนออฟไลน์ได้)
 // คำขอไปยัง Firestore/Auth (googleapis.com) ปล่อยผ่านตามปกติ ไม่แตะต้อง
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   const mine = url.origin === location.origin;
-  const lib = url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/');
+  const lib = (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/'))
+    || (url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/npm/@zxing/library@'));
   if (!mine && !lib) return;
   e.respondWith(
     fetch(e.request).then(res => {

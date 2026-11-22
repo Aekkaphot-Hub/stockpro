@@ -199,6 +199,18 @@ td.n,th.n{text-align:right}
 .dsec.off .chev{transform:rotate(-90deg)}.dsec.off{border-color:#ff7a0055}
 .hrow{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;text-align:left}
 .hrow .chev{display:inline-flex;color:var(--mu);transition:transform .15s;transform:rotate(-90deg)}.hrow.on .chev{transform:none;color:var(--or)}
+.pkcam{position:relative;width:100%;aspect-ratio:3/4;max-height:56vh;border-radius:var(--r);overflow:hidden;background:#000;border:2px solid var(--line)}
+@media(min-width:700px){.pkcam{aspect-ratio:16/9}}
+.pkcam.rec{border-color:var(--red);box-shadow:0 0 24px #ff525255}
+.pkcam video{width:100%;height:100%;object-fit:contain;display:block}
+#pkc{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.pkframe{position:absolute;inset:20% 10%;border:2px dashed #ff7a00aa;border-radius:14px;pointer-events:none}
+.pkcam.rec .pkframe{display:none}
+.pkstat{position:absolute;left:8px;right:60px;top:8px;background:#000c;border-radius:12px;padding:7px 11px;font-size:13px;font-weight:700;line-height:1.35}
+.pkcam.rec .pkstat{color:#fff;background:#b3121dd9}
+.pkflip{position:absolute;top:8px;right:8px;background:#000c}
+.pkerr{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:20px;background:#000e;font-size:14px}
+.pkth{width:64px;height:48px;object-fit:cover;border-radius:9px;background:#000;flex:none}
 nav button span{white-space:nowrap}
 @media(max-width:420px){nav button{font-size:11px;letter-spacing:-.2px}}
 #ddate{width:auto;padding:5px 10px;margin-top:4px;font-size:13px;color-scheme:dark}
@@ -239,7 +251,7 @@ alert:'<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17
 dl:'<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',ul:'<path d="M12 15V3M7 8l5-5 5 5M5 21h14"/>',
 cam:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
 clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-l:'<path d="M15 18l-6-6 6-6"/>',chev:'<path d="M6 9l6 6 6-6"/>',r:'<path d="M9 18l6-6-6-6"/>',
+l:'<path d="M15 18l-6-6 6-6"/>',chev:'<path d="M6 9l6 6 6-6"/>',video:'<path d="M23 7l-7 5 7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/>',flip:'<path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/>',r:'<path d="M9 18l6-6-6-6"/>',
 fire:'<path d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 3-7 1 1 2 2 3 2 0-3-1-5 0-7z"/>',
 coin:'<circle cx="12" cy="12" r="9"/><path d="M14.5 9a2.5 2 0 0 0-2.5-1.5c-1.5 0-2.5.8-2.5 1.8s1 1.5 2.5 1.7 2.5.7 2.5 1.8-1 1.7-2.5 1.7A2.5 2 0 0 1 9.5 15M12 6v1.5M12 16.5V18"/>',
 list:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
@@ -309,7 +321,7 @@ async function scan(cb,opt){
   <button class="btn ghost" id="scl">${ic('x')}ปิดกล้อง</button>`;
   document.body.append(ov);
   let stream=null,timer=null,h5=null,done=false;
-  const stop=()=>{done=true;clearInterval(timer);stream&&stream.getTracks().forEach(t=>t.stop());h5&&h5.stop().catch(()=>{});ov.remove();scanStop=null};
+  const stop=()=>{done=true;clearInterval(timer);stream&&stream.getTracks().forEach(t=>t.stop());h5&&h5.stop().catch(()=>{});ov.remove();scanStop=null;if(opt.onClose)opt.onClose()};
   scanStop=stop;
   let last='',lt=0;
   const found=c=>{if(done||!c)return;c=String(c).trim();
@@ -337,7 +349,7 @@ function findByCode(c){c=(c||'').trim().toLowerCase();if(!c)return null;return S
 const matchP=(p,q)=>{q=(q||'').trim().toLowerCase();return !q||[p.name,p.sku,p.barcode,p.cat].some(x=>(x||'').toLowerCase().includes(q))};
 
 /* ============ นำทาง ============ */
-const TABS=[['products','box','สินค้า'],['move','swap','รับเข้า/ออก'],['daily','calendar','นับรายวัน'],['count','check','นับสต๊อก'],['report','pie','สรุป']];
+const TABS=[['products','box','สินค้า'],['move','swap','รับเข้า/ออก'],['daily','calendar','นับรายวัน'],['count','check','นับสต๊อก'],['pack','video','อัดวิดีโอ'],['report','pie','สรุป']];
 let tab='products';
 function renderNav(){
   $('#nav').innerHTML=`<div class="navlogo"><div class="logo">${ic('box',24)}</div><div class="brand">StockPro<small>${esc(S.settings.shopName)}</small></div></div>`+
@@ -345,8 +357,8 @@ function renderNav(){
     `<div class="sp"></div>`;
   $('#hlogo').innerHTML=ic('box',24);$('#gearbtn').innerHTML=ic('gear');$('#shop').textContent=S.settings.shopName;
 }
-function go(t){dFlush();tab=t;render()}
-function render(keep){if(!shopId||!ready)return;renderNav();({products:vProducts,move:vMove,daily:vDaily,count:vCount,report:vReport})[tab]();if(!keep)window.scrollTo(0,0)}
+function go(t){dFlush();if(t!=='pack')packLeave();tab=t;render()}
+function render(keep){if(!shopId||!ready)return;renderNav();({products:vProducts,move:vMove,daily:vDaily,pack:vPack,count:vCount,report:vReport})[tab]();if(!keep)window.scrollTo(0,0)}
 /* วาดใหม่เมื่อข้อมูลจากเครื่องอื่นเข้ามา — ข้ามถ้าผู้ใช้กำลังพิมพ์อยู่ */
 function refresh(){const a=document.activeElement;if(a&&a.closest&&a.closest('#view')&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)){dirty=true;return}dirty=false;render(true)}
 document.addEventListener('focusout',()=>{if(dirty)setTimeout(refresh,150)});
@@ -523,7 +535,7 @@ function bulkCommit(){
 /* เครื่องสแกนบาร์โค้ดทำงานเหมือนคีย์บอร์ดที่พิมพ์เร็วมากแล้วกด Enter → จับไว้ได้แม้ไม่ได้โฟกัสช่องสแกน */
 let kbuf='',kt=0;
 document.addEventListener('keydown',e=>{
-  const h=tab==='daily'?dScan:(S.bulk&&tab==='move'?bulkScan:null);
+  const h=tab==='daily'?dScan:tab==='pack'?pkText:(S.bulk&&tab==='move'?bulkScan:null);
   if(!h||modals.length||scanStop)return;
   const a=document.activeElement;if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
   const now=Date.now();if(now-kt>80)kbuf='';kt=now;
@@ -880,6 +892,164 @@ function txtDaily(){
   const t=dDayTotals(D.date),its=Object.keys(((S.daily[D.date]||{}).items)||{}).map(pid=>dGet(D.date,pid)).filter(x=>x.q>0).sort((a,b)=>b.q*b.price-a.q*a.price);
   return `🗓 ยอดขายรายวัน ${dLabel(D.date)}\n🏪 ${S.settings.shopName}\n\n💰 ยอดขาย ${money(t.amt)} บาท\n📦 ${money(t.q)} ชิ้น · ${t.n} สินค้า`+(its.length?'\n\n'+its.map(x=>`• ${x.name} ${x.q} × ${money(x.price)} = ${money(x.q*x.price)}`).join('\n'):'')}
 
+/* ============ 6) อัดวิดีโอแพคพัสดุ ============
+   สแกนใบปะหน้า = เริ่มอัด / เอาออกจากกล้อง แล้วสแกนใบเดิมอีกครั้ง = หยุด
+   วิดีโอเก็บใน IndexedDB ของเครื่องนี้เท่านั้น ไม่ส่งขึ้น Firebase (เขียนทีละช่วง 2 วินาที แอพค้างก็กู้คืนได้) */
+const PK_FMT=['code_128','code_39','code_93','qr_code','data_matrix'];   // ไม่อ่าน EAN/UPC เพื่อไม่ให้บาร์โค้ดบนตัวสินค้าไปสั่งเริ่มอัด
+const PK_GATHER=1500,PK_GONE=4000;   // เก็บรหัสทั้งหมดบนใบปะหน้าช่วงแรก / ต้องหายจากกล้องกี่ ms ถึงจะพร้อมหยุด
+const PK={token:0,stream:null,video:null,canvas:null,ctx:null,raf:0,scanT:0,dec:null,facing:'environment',rec:null,cand:{},block:null,q:'',metas:[],wake:null,other:'',otherT:0};
+const fmtClock=ts=>new Date(ts).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+const fmtDur=ms=>{const s=Math.max(0,Math.round(ms/1000)),h=Math.floor(s/3600),m=Math.floor(s/60)%60;return (h?h+':'+pad(m):m)+':'+pad(s%60)};
+const fmtSize=b=>b>=1e9?(b/1e9).toFixed(2)+' GB':(b/1e6).toFixed(1)+' MB';
+let vdbP=null;
+function vdb(){return vdbP||(vdbP=new Promise((res,rej)=>{const r=indexedDB.open('stockpro_videos',1);
+  r.onupgradeneeded=()=>{r.result.createObjectStore('meta',{keyPath:'id'});r.result.createObjectStore('chunks')};
+  r.onsuccess=()=>res(r.result);r.onerror=()=>{vdbP=null;rej(r.error)}}))}
+function vtx(stores,mode,fn){return vdb().then(d=>new Promise((res,rej)=>{const t=d.transaction(stores,mode),r=fn(t);t.oncomplete=()=>res(r&&r.result);t.onerror=t.onabort=()=>rej(t.error)}))}
+const vRange=id=>IDBKeyRange.bound([id,0],[id,Number.MAX_SAFE_INTEGER]);
+const vMetaPut=m=>vtx(['meta'],'readwrite',t=>{t.objectStore('meta').put(m)});
+const vMetaAll=()=>vtx(['meta'],'readonly',t=>t.objectStore('meta').getAll());
+const vBlob=m=>vtx(['chunks'],'readonly',t=>t.objectStore('chunks').getAll(vRange(m.id))).then(p=>new Blob(p,{type:(m.mime||'video/webm').split(';')[0]}));
+const vDelete=id=>vtx(['meta','chunks'],'readwrite',t=>{t.objectStore('meta').delete(id);t.objectStore('chunks').delete(vRange(id))});
+function pkMime(){if(!window.MediaRecorder)return null;return ['video/mp4;codecs=avc1.42E01F','video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(t=>MediaRecorder.isTypeSupported(t))||''}
+/* ตัวอ่านบาร์โค้ด: ใช้ของเครื่องถ้ามี (Android) ไม่งั้นใช้ ZXing (iPhone / คอมพิวเตอร์) */
+async function pkDecoder(){
+  if('BarcodeDetector' in window){try{const sup=await BarcodeDetector.getSupportedFormats(),f=PK_FMT.filter(x=>sup.includes(x));
+    if(f.length){const d=new BarcodeDetector({formats:f});return async src=>(await d.detect(src)).map(x=>({v:x.rawValue,f:x.format}))}}catch(e){}}
+  if(!window.ZXing)await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';s.crossOrigin='anonymous';s.onload=res;s.onerror=rej;document.head.append(s)});
+  const Z=window.ZXing,hints=new Map(),rd=new Z.MultiFormatReader(),c=document.createElement('canvas'),x=c.getContext('2d',{willReadFrequently:true});
+  hints.set(Z.DecodeHintType.POSSIBLE_FORMATS,[Z.BarcodeFormat.CODE_128,Z.BarcodeFormat.CODE_39,Z.BarcodeFormat.CODE_93,Z.BarcodeFormat.QR_CODE,Z.BarcodeFormat.DATA_MATRIX]);
+  hints.set(Z.DecodeHintType.TRY_HARDER,true);rd.setHints(hints);
+  return async src=>{const w=src.videoWidth,h=src.videoHeight;if(!w)return[];const k=Math.min(1,960/Math.max(w,h));c.width=Math.round(w*k);c.height=Math.round(h*k);x.drawImage(src,0,0,c.width,c.height);
+    try{const res=rd.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c))));
+      return [{v:res.getText(),f:String(Z.BarcodeFormat[res.getBarcodeFormat()]||'').toLowerCase()}]}catch(e){return[]}finally{rd.reset()}}}
+function pkErr(t){const e=$('#pkerr');if(!e)return;e.textContent=t||'';e.style.display=t?'grid':'none'}
+function pkTracksStop(){if(PK.stream)PK.stream.getTracks().forEach(t=>t.stop());PK.stream=null;if(PK.video)PK.video.srcObject=null}
+async function pkWake(){try{if(navigator.wakeLock&&!PK.wake){PK.wake=await navigator.wakeLock.request('screen');PK.wake.addEventListener('release',()=>{PK.wake=null})}}catch(e){}}
+async function pkCam(){
+  const tk=++PK.token;clearTimeout(PK.scanT);cancelAnimationFrame(PK.raf);pkTracksStop();pkErr('');
+  const v=$('#pkv');if(!v)return;
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return pkErr('เปิดกล้องไม่ได้ ต้องเปิดแอพผ่านลิงก์ https');
+  if(pkMime()===null)return pkErr('เบราว์เซอร์นี้อัดวิดีโอไม่ได้ กรุณาอัปเดตเบราว์เซอร์');
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:PK.facing},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}});
+    if(tk!==PK.token||tab!=='pack'||!$('#pkv')){st.getTracks().forEach(t=>t.stop());return}
+    PK.stream=st;PK.video=$('#pkv');PK.canvas=$('#pkc');PK.ctx=PK.canvas.getContext('2d',{alpha:false});
+    PK.video.srcObject=st;await PK.video.play();
+    if(!PK.dec)PK.dec=await pkDecoder().catch(e=>{console.warn(e);return null});
+    if(tk!==PK.token)return;
+    if(!PK.dec)toast('สแกนอัตโนมัติไม่ได้ในเครื่องนี้ พิมพ์เลขพัสดุแทนได้','err');
+    pkWake();pkDraw();pkTick(tk);
+  }catch(e){if(tk===PK.token)pkErr(e.name==='NotAllowedError'?'ยังไม่ได้อนุญาตให้ใช้กล้อง กรุณาอนุญาตในการตั้งค่าเบราว์เซอร์ แล้วเปิดเมนูนี้ใหม่':e.name==='NotFoundError'?'ไม่พบกล้องในเครื่องนี้':'เปิดกล้องไม่ได้: '+e.message)}
+}
+function packLeave(){if(PK.rec)pkStop('leave');PK.token++;clearTimeout(PK.scanT);cancelAnimationFrame(PK.raf);pkTracksStop();if(PK.wake){PK.wake.release().catch(()=>{});PK.wake=null}}
+document.addEventListener('visibilitychange',()=>{if(tab!=='pack'||!ready)return;if(document.hidden)packLeave();else if($('#pkroot'))pkCam()});
+function pkTick(tk){if(tk!==PK.token)return;(async()=>{let l=[];
+  if(PK.dec&&PK.video&&PK.video.videoWidth&&!(PK.rec&&PK.rec.ending)){try{l=await PK.dec(PK.video)}catch(e){}}
+  if(tk!==PK.token)return;pkSeen(l);pkUI();PK.scanT=setTimeout(()=>pkTick(tk),PK.rec?350:220)})()}
+const pkValid=v=>/^[A-Za-z0-9_-]{6,40}$/.test(v)&&!findByCode(v);   // ตัด URL/ข้อความ และบาร์โค้ดที่เป็นสินค้าในระบบ
+const pkScore=x=>(x.f!=='qr_code'&&x.f!=='data_matrix'?4:0)+(x.v.length>=10&&x.v.length<=22?2:0)+(/[A-Za-z]/.test(x.v)&&/\d/.test(x.v)?1:0);
+function pkAddCode(r,x){if(!r.m.codes.includes(x.v))r.m.codes.push(x.v);const s=pkScore(x);if(s>r.best){r.best=s;r.m.code=x.v}}
+function pkSeen(list){
+  const now=Date.now(),hits=list.map(x=>({v:String(x.v||'').trim(),f:x.f})).filter(x=>pkValid(x.v)),vals=hits.map(x=>x.v),r=PK.rec;
+  if(r){if(r.ending)return;
+    if(now-r.m.startedAt<PK_GATHER){hits.forEach(x=>pkAddCode(r,x));if(vals.length)r.lastSeen=now;return}
+    if(vals.some(v=>r.m.codes.includes(v))){hits.forEach(x=>{if(!r.m.codes.includes(x.v))r.m.codes.push(x.v)});
+      if(r.armed){if(now-r.hitAt>1500)r.hits=0;r.hits++;r.hitAt=now;if(r.hits>=2)pkStop('scan')}else r.lastSeen=now;
+    }else{if(!r.armed&&now-r.lastSeen>=PK_GONE)r.armed=true;if(vals[0]){PK.other=vals[0];PK.otherT=now}}
+    return}
+  if(PK.block){if(now-PK.block.at<2000)return;
+    if(vals.some(v=>PK.block.codes.includes(v))){PK.block.last=now;return}
+    if(now-PK.block.last>3000)PK.block=null}
+  for(const x of hits){if(PK.cand[x.v]&&now-PK.cand[x.v]<1500){PK.cand={};return pkStart(hits.slice().sort((a,b)=>pkScore(b)-pkScore(a))[0],hits)}PK.cand[x.v]=now}   // อ่านตรงกัน 2 ครั้งจึงเริ่ม
+}
+function pkText(code){code=(code||'').trim();if(!code)return false;const r=PK.rec;   // ช่องพิมพ์ / เครื่องสแกน USB
+  if(r){if(r.ending)return false;if(r.m.codes.includes(code)){if(Date.now()-r.m.startedAt<1500)return false;pkStop('scan');return true}
+    beep(false);toast('กำลังอัดเลข '+r.m.code+' อยู่','err');return false}
+  if(!/^[A-Za-z0-9_-]{4,40}$/.test(code)){beep(false);toast('เลขพัสดุไม่ถูกต้อง','err');return false}
+  if(!PK.stream||!PK.video||!PK.video.videoWidth){toast('กล้องยังไม่พร้อม','err');return false}
+  PK.block=null;pkStart({v:code,f:'manual'},[{v:code,f:'manual'}]);return true}
+function pkThumb(){try{const v=PK.video,k=160/v.videoWidth,c=document.createElement('canvas');c.width=160;c.height=Math.round(v.videoHeight*k);c.getContext('2d').drawImage(v,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.6)}catch(e){return ''}}
+function pkStart(hit,hits){
+  if(PK.rec||!PK.stream)return;const mime=pkMime(),v=PK.video,c=PK.canvas,k=Math.min(1,1280/Math.max(v.videoWidth,v.videoHeight));
+  c.width=Math.round(v.videoWidth*k/2)*2;c.height=Math.round(v.videoHeight*k/2)*2;PK.ctx.drawImage(v,0,0,c.width,c.height);
+  let mr;try{const o={videoBitsPerSecond:1500000};if(mime)o.mimeType=mime;mr=new MediaRecorder(c.captureStream(24),o)}catch(e){toast('เริ่มอัดไม่ได้: '+e.message,'err');return}
+  const now=Date.now(),m={id:uid('v'),shopId,code:hit.v,codes:[],startedAt:now,endedAt:null,status:'rec',mime:mr.mimeType||mime||'video/webm',size:0,user:S.settings.user||'',thumb:pkThumb()};
+  const r=PK.rec={m,mr,seq:0,writes:Promise.resolve(),best:-1,armed:false,lastSeen:now,hits:0,hitAt:0,ending:0,done:false,failed:false};
+  hits.forEach(x=>pkAddCode(r,x));
+  mr.ondataavailable=e=>{if(!e.data||!e.data.size)return;const s=r.seq++,d=e.data;m.size+=d.size;m.lastAt=Date.now();
+    r.writes=r.writes.then(()=>vtx(['chunks','meta'],'readwrite',t=>{t.objectStore('chunks').put(d,[m.id,s]);t.objectStore('meta').put(m)})).catch(err=>{console.warn(err);if(!r.failed){r.failed=true;toast('พื้นที่เก็บข้อมูลเต็ม หยุดอัดแล้ว','err');pkStop('full')}})};
+  mr.onstop=()=>pkDone(r);mr.onerror=()=>pkStop('error');
+  vMetaPut(m).catch(()=>{});mr.start(2000);beep(true);pkUI();
+}
+function pkStop(why){const r=PK.rec;if(!r||r.ending)return;r.ending=Date.now();r.m.endedAt=r.ending;r.m.stopReason=why||'';if(why==='scan'||why==='manual')beep(true);pkUI();
+  const fin=()=>{try{if(r.mr.state!=='inactive')r.mr.stop();else pkDone(r)}catch(e){pkDone(r)}};
+  if(why==='scan'||why==='manual')setTimeout(fin,800);else fin()}   // ค้างภาพ 0.8 วินาทีให้เห็นเวลา "เสร็จ" ในวิดีโอ
+async function pkDone(r){if(r.done)return;r.done=true;try{await r.writes}catch(e){}
+  const m=r.m;m.status='done';if(!m.endedAt)m.endedAt=Date.now();if(PK.rec===r)PK.rec=null;
+  const t=Date.now();PK.block={codes:m.codes.slice(),last:t,at:t};PK.cand={};
+  try{if(m.size)await vMetaPut(m);else await vDelete(m.id)}catch(e){console.warn(e)}
+  if(m.size)toast(`บันทึกวิดีโอ ${m.code} แล้ว (${fmtDur(m.endedAt-m.startedAt)})`);else toast('อัดไม่สำเร็จ ไม่มีข้อมูลวิดีโอ','err');
+  pkUI();pkList()}
+function pkDraw(){PK.raf=requestAnimationFrame(pkDraw);const r=PK.rec,v=PK.video,c=PK.canvas,x=PK.ctx;if(!r||!v||!v.videoWidth)return;x.drawImage(v,0,0,c.width,c.height);pkStamp(x,c.width,c.height,r)}
+function pkStamp(x,W,H,r){   // ฝังเลขพัสดุ วันที่ และเวลาลงในภาพวิดีโอ
+  const fs=Math.round(Math.max(16,Math.min(W,H)*.034)),p=Math.round(fs*.55),m=r.m,now=r.ending||Date.now(),lh=fs*1.38;
+  const lines=[`เลขพัสดุ ${m.code}`,`${dLabel(ymd(new Date(now)))}  ${fmtClock(now)}`,`เริ่ม ${fmtClock(m.startedAt)}${r.ending?'   เสร็จ '+fmtClock(r.ending):''}`];
+  x.font=`700 ${fs}px Sarabun,"Noto Sans Thai",Tahoma,sans-serif`;x.textBaseline='top';
+  const bw=Math.min(W-p*2,Math.max(...lines.map(l=>x.measureText(l).width))+p*2),bh=lines.length*lh+p*1.2,by=H-bh-p;
+  x.fillStyle='rgba(0,0,0,.65)';x.fillRect(p,by,bw,bh);lines.forEach((l,i)=>{x.fillStyle=i?'#fff':'#ffa040';x.fillText(l,p*2,by+p*.6+i*lh)})}
+function pkUI(){const st=$('#pkstat');if(!st)return;const r=PK.rec,cam=$('#pkcam'),b=$('#pkstop'),f=$('#pkflip');cam.classList.toggle('rec',!!r);b.style.display=r&&!r.ending?'flex':'none';f.style.display=r?'none':'';
+  if(!r){st.textContent=PK.block&&Date.now()-PK.block.at<2000?'บันทึกแล้ว เตรียมใบปะหน้าถัดไป':'เล็งใบปะหน้าเข้ากล้องเพื่อเริ่มอัด';return}
+  if(r.ending){st.textContent='กำลังบันทึกวิดีโอ…';return}
+  const o=PK.other&&Date.now()-PK.otherT<2500?` · พบเลขอื่น ${PK.other} (ไม่หยุด)`:'';
+  st.textContent=`● อัด ${fmtDur(Date.now()-r.m.startedAt)} · ${r.m.code} — ${r.armed?'แพคเสร็จแล้วนำใบปะหน้าเดิมเข้ากล้องเพื่อหยุด':'เอาใบปะหน้าออกจากกล้องแล้วแพคได้เลย'}${o}`}
+function vPack(){
+  if($('#pkroot')){if(!PK.stream&&!document.hidden)pkCam();return}
+  $('#view').innerHTML=`<div id="pkroot"><h2>${ic('video',26)}อัดวิดีโอแพคพัสดุ</h2>
+  <div class="pkcam" id="pkcam"><video id="pkv" playsinline muted autoplay></video><canvas id="pkc"></canvas><div class="pkframe"></div><div class="pkstat" id="pkstat"></div>
+    <button class="iconbtn pkflip" id="pkflip" aria-label="สลับกล้อง">${ic('flip')}</button><div class="pkerr" id="pkerr"></div></div>
+  <button class="btn red block" id="pkstop" style="display:none;margin-top:10px;padding:15px">${ic('check')}หยุดอัดและบันทึก</button>
+  <div class="row" style="margin-top:10px"><input id="pkm" placeholder="พิมพ์เลขพัสดุ / ยิงเครื่องสแกน" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button class="btn" id="pkmb" style="flex:none">ตกลง</button></div>
+  <div class="row" style="margin:20px 2px 8px"><b style="font-size:17px">วิดีโอในเครื่องนี้</b><span class="sp"></span><span class="muted" id="pku" style="font-size:12px;text-align:right"></span></div>
+  <div class="searchbar">${ic('search')}<input id="pkq" placeholder="ค้นหาเลขพัสดุ" value="${esc(PK.q)}" autocomplete="off" spellcheck="false"><button class="btn" id="pkqs" aria-label="สแกนเลขพัสดุเพื่อค้นหา">${ic('scan',22)}</button></div>
+  <div id="pkl"></div></div>`;
+  const mi=$('#pkm'),send=()=>{if(pkText(mi.value))mi.value=''};
+  $('#pkmb').onclick=send;mi.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();send()}};
+  $('#pkstop').onclick=()=>pkStop('manual');
+  $('#pkflip').onclick=()=>{if(PK.rec)return;PK.facing=PK.facing==='environment'?'user':'environment';pkCam()};
+  $('#pkq').oninput=e=>{PK.q=e.target.value;pkList()};
+  $('#pkqs').onclick=()=>{if(PK.rec)return toast('หยุดอัดก่อนจึงจะสแกนค้นหาได้','err');packLeave();scan(c=>{PK.q=c;$('#pkq').value=c;pkList()},{onClose:()=>{if(tab==='pack')pkCam()}})};
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});   // ขอไม่ให้เบราว์เซอร์ลบวิดีโอเองเมื่อพื้นที่ใกล้เต็ม
+  pkUI();pkCam();pkRecover().then(pkList,pkList);
+}
+async function pkRecover(){const a=await vMetaAll();   // วิดีโอที่ค้างเพราะแอพปิดกะทันหัน → เก็บส่วนที่อัดได้
+  for(const m of a)if(m.status==='rec'&&!(PK.rec&&PK.rec.m.id===m.id)){if(m.size){m.status='done';m.recovered=true;m.endedAt=m.lastAt||m.startedAt;await vMetaPut(m)}else await vDelete(m.id)}}
+async function pkList(){const el=$('#pkl');if(!el)return;let all=[];try{all=await vMetaAll()}catch(e){el.innerHTML=`<div class="empty">เปิดพื้นที่เก็บวิดีโอไม่ได้</div>`;return}
+  if(!$('#pkl'))return;
+  PK.metas=all.filter(m=>m.shopId===shopId&&m.status==='done').sort((a,b)=>b.startedAt-a.startedAt);
+  const q=PK.q.trim().toLowerCase(),l=q?PK.metas.filter(m=>(m.codes||[m.code]).concat(m.code).some(c=>String(c).toLowerCase().includes(q))):PK.metas,show=l.slice(0,150);
+  const used=PK.metas.reduce((s,m)=>s+(m.size||0),0),u=$('#pku');
+  if(u){u.textContent=`${PK.metas.length} วิดีโอ · ${fmtSize(used)}`;if(navigator.storage&&navigator.storage.estimate)navigator.storage.estimate().then(e=>{if($('#pku')&&e.quota)$('#pku').textContent=`${PK.metas.length} วิดีโอ · ${fmtSize(used)} · เหลือ ${fmtSize(Math.max(0,e.quota-e.usage))}`}).catch(()=>{})}
+  if(!show.length){el.innerHTML=`<div class="empty">${ic('video')}<div>${q?'ไม่พบเลขพัสดุนี้':'ยังไม่มีวิดีโอ เล็งใบปะหน้าเข้ากล้องเพื่อเริ่มอัด'}</div></div>`;return}
+  let html='',day='';show.forEach(m=>{const d=ymd(new Date(m.startedAt));if(d!==day){if(day)html+='</div>';day=d;html+=`<div class="muted" style="font-size:13px;margin:12px 4px 6px">${dLabel(d)}</div><div class="card" style="padding:2px 12px">`}
+    html+=`<div class="li" data-v="${m.id}" style="cursor:pointer"><img class="pkth" src="${esc(m.thumb||'')}" alt=""><div class="t"><div>${esc(m.code)}</div><div>${fmtClock(m.startedAt)} – ${fmtClock(m.endedAt)} · ${fmtDur(m.endedAt-m.startedAt)} · ${fmtSize(m.size||0)}</div></div>${m.recovered?'<span class="badge">กู้คืน</span>':''}</div>`});
+  el.innerHTML=html+'</div>'+(l.length>show.length?`<div class="hint" style="text-align:center;margin:12px">แสดงล่าสุด ${show.length} จาก ${l.length} วิดีโอ ใช้ช่องค้นหาเพื่อดูรายการอื่น</div>`:'');
+  el.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>pkPlay(e.dataset.v));
+}
+async function pkPlay(id){const m=PK.metas.find(x=>x.id===id);if(!m)return;let b;try{b=await vBlob(m)}catch(e){return toast('เปิดวิดีโอไม่ได้','err')}
+  if(!b.size)return toast('ไม่พบไฟล์วิดีโอ','err');
+  const url=URL.createObjectURL(b),ext=b.type.includes('mp4')?'mp4':'webm',s=new Date(m.startedAt),name=`${String(m.code).replace(/[^\w-]/g,'_')}_${ymd(s)}_${pad(s.getHours())}${pad(s.getMinutes())}${pad(s.getSeconds())}.${ext}`;
+  const row=(k,v)=>`<tr><td class="muted">${k}</td><td class="n"><b>${esc(v)}</b></td></tr>`,others=(m.codes||[]).filter(c=>c!==m.code);
+  const why={hidden:'ออกจากแอพระหว่างอัด',leave:'เปลี่ยนเมนูระหว่างอัด',full:'พื้นที่เต็ม',error:'กล้องขัดข้อง'}[m.stopReason]||(m.recovered?'แอพปิดระหว่างอัด (กู้คืนส่วนที่อัดได้)':'');
+  const canShare=(()=>{try{return !!(navigator.canShare&&navigator.canShare({files:[new File([b],name,{type:b.type})]}))}catch(e){return false}})();
+  const ov=modal(`<h3>${ic('video')}${esc(m.code)}${closeBtn}</h3><video src="${url}" controls playsinline style="width:100%;max-height:52vh;background:#000;border-radius:14px;margin-top:10px"></video>
+    <table style="margin-top:8px">${row('วันที่',dLabel(ymd(s)))}${row('เริ่มบันทึก',fmtClock(m.startedAt))}${row('บันทึกเสร็จ',fmtClock(m.endedAt))}${row('ความยาว',fmtDur(m.endedAt-m.startedAt))}${row('ขนาดไฟล์',fmtSize(b.size))}${m.user?row('ผู้อัด',m.user):''}${others.length?row('รหัสอื่นบนใบปะหน้า',others.join(', ')):''}${why?row('หยุดเพราะ',why):''}</table>
+    <div class="row" style="margin-top:14px"><button class="btn red" id="pvd" style="padding:12px 14px;flex:none" aria-label="ลบวิดีโอ">${ic('trash')}</button>${canShare?`<button class="btn ghost" id="pvs" style="flex:1">${ic('send')}แชร์</button>`:''}<button class="btn" id="pvl" style="flex:1">${ic('dl')}บันทึกไฟล์</button></div>`,()=>URL.revokeObjectURL(url));
+  ov.querySelector('#pvl').onclick=()=>{const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove()};
+  const sh=ov.querySelector('#pvs');if(sh)sh.onclick=()=>navigator.share({files:[new File([b],name,{type:b.type})],title:m.code}).catch(()=>{});
+  ov.querySelector('#pvd').onclick=()=>confirmBox(`ลบวิดีโอ <b>${esc(m.code)}</b> ออกจากเครื่องนี้ถาวร? กู้คืนไม่ได้`,async()=>{closeModal(ov);try{await vDelete(m.id);toast('ลบวิดีโอแล้ว')}catch(e){toast('ลบไม่สำเร็จ','err')}pkList()},'ลบถาวร');
+}
+
 /* ============ ส่งผ่าน LINE ============ */
 const hdr=t=>`${t}\n🏪 ${S.settings.shopName}\n🕒 ${fmtDT(Date.now())}\n`;
 function txtLow(){const l=S.products.filter(p=>p.qty<=p.reorder).sort((a,b)=>a.qty-b.qty);
@@ -1055,7 +1225,7 @@ function setSync(){const e=$('#sync');if(!e)return;const off=!navigator.onLine,p
 addEventListener('online',setSync);addEventListener('offline',setSync);
 function changed(){setSync();clearTimeout(tmr);tmr=setTimeout(()=>{
   if(!ready){if(first.p&&first.m&&first.c){ready=true;gateOff();render();offerMigrate()}}else refresh();if(mRedraw)mRedraw()},50)}
-function stopListeners(){unsubs.forEach(u=>u());unsubs=[];if(dUnsub){dUnsub();dUnsub=null;dMonth=null}first={};pend={};ready=false}
+function stopListeners(){packLeave();unsubs.forEach(u=>u());unsubs=[];if(dUnsub){dUnsub();dUnsub=null;dMonth=null}first={};pend={};ready=false}
 function startListeners(){
   stopListeners();
   const on=(q,k,cb)=>unsubs.push(FS.onSnapshot(q,{includeMetadataChanges:true},sn=>{pend[k]=sn.metadata.hasPendingWrites;first[k]=1;cb(sn);changed()},
