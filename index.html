@@ -1057,16 +1057,16 @@ function vPack(){
 }
 async function pkRecover(){const a=await vMetaAll();   // วิดีโอที่ค้างเพราะแอพปิดกะทันหัน → เก็บส่วนที่อัดได้
   for(const m of a)if(m.status==='rec'&&!(PK.rec&&PK.rec.m.id===m.id)){if(m.size){m.status='done';m.recovered=true;m.endedAt=m.lastAt||m.startedAt;await vMetaPut(m)}else await vDelete(m.id)}}
-/* ลบคลิปที่บันทึกเสร็จมาแล้วครบ 7 วัน (7×24 ชม.) — ลบเมื่อกดปุ่มและยืนยันเท่านั้น ไม่ลบเอง */
-const PK_KEEP=7*864e5;
+/* ลบคลิปที่บันทึกเสร็จมาแล้วครบ 30 วัน (30×24 ชม.) — ก่อนครบลบไม่ได้ และลบเมื่อกดปุ่มและยืนยันเท่านั้น ไม่ลบเอง */
+const PK_KEEP=30*864e5;
 const pkOld=()=>{const t=Date.now()-PK_KEEP;return PK.metas.filter(m=>(m.endedAt||m.startedAt)<=t)};
 function pkFilterUI(){const d=$('#pkd');if(!d)return;const t=ymd(new Date());d.max=t;if(d.value!==PK.day)d.value=PK.day;
   d.classList.toggle('on',!!PK.day&&PK.day!==t);$('#pkall').classList.toggle('on',!PK.day);$('#pktoday').classList.toggle('on',PK.day===t);
   const o=pkOld(),b=$('#pkpurge');b.disabled=!o.length||PK.purging;
-  b.innerHTML=ic('trash')+(PK.purging?'กำลังลบ…':o.length?`ลบคลิปที่ครบ 7 วัน (${o.length} คลิป · ${fmtSize(o.reduce((s,m)=>s+(m.size||0),0))})`:'ยังไม่มีคลิปที่ครบ 7 วัน')}
+  b.innerHTML=ic('trash')+(PK.purging?'กำลังลบ…':o.length?`ลบคลิปที่ครบ 30 วัน (${o.length} คลิป · ${fmtSize(o.reduce((s,m)=>s+(m.size||0),0))})`:'ยังไม่มีคลิปที่ครบ 30 วัน')}
 function pkPurge(){if(PK.purging)return;const old=pkOld();if(!old.length)return;
   const size=old.reduce((s,m)=>s+(m.size||0),0),from=dLabel(ymd(new Date(old[old.length-1].startedAt))),to=dLabel(ymd(new Date(old[0].startedAt)));
-  confirmBox(`ลบคลิปที่ครบ 7 วัน <b>${old.length} คลิป</b> (${fmtSize(size)})<br><span class="muted">${from===to?from:from+' ถึง '+to}</span><br><span style="color:var(--red)">ลบออกจากเครื่องนี้ถาวร กู้คืนไม่ได้ ถ้ามีคลิปสำคัญให้บันทึกไฟล์ก่อน</span>`,async()=>{
+  confirmBox(`ลบคลิปที่ครบ 30 วัน <b>${old.length} คลิป</b> (${fmtSize(size)})<br><span class="muted">${from===to?from:from+' ถึง '+to}</span><br><span style="color:var(--red)">ลบออกจากเครื่องนี้ถาวร กู้คืนไม่ได้ ถ้ามีคลิปสำคัญให้บันทึกไฟล์ก่อน</span>`,async()=>{
     PK.purging=true;pkFilterUI();let ok=0;
     for(const m of old){try{await vDelete(m.id);ok++}catch(e){console.warn(e)}}
     PK.purging=false;toast(ok===old.length?`ลบแล้ว ${ok} คลิป`:`ลบได้ ${ok} จาก ${old.length} คลิป`,ok===old.length?'':'err');pkList()},'ลบถาวร')}
@@ -1080,7 +1080,7 @@ async function pkList(){const el=$('#pkl');if(!el)return;let all=[];try{all=awai
   if(!show.length){el.innerHTML=`<div class="empty">${ic('video')}<div>${q&&PK.day?`ไม่พบเลขพัสดุนี้ในวันที่ ${dLabel(PK.day)}`:q?'ไม่พบเลขพัสดุนี้':PK.day?`ไม่มีวิดีโอในวันที่ ${dLabel(PK.day)}`:'ยังไม่มีวิดีโอ เล็งใบปะหน้าเข้ากล้องเพื่อเริ่มอัด'}</div></div>`;return}
   const oldT=Date.now()-PK_KEEP;
   let html=q||PK.day?`<div class="muted" style="font-size:13px;margin:2px 4px">พบ ${l.length} วิดีโอ · ${fmtSize(l.reduce((s,m)=>s+(m.size||0),0))}</div>`:'',day='';show.forEach(m=>{const d=ymd(new Date(m.startedAt));if(d!==day){if(day)html+='</div>';day=d;html+=`<div class="muted" style="font-size:13px;margin:12px 4px 6px">${dLabel(d)}</div><div class="card" style="padding:2px 12px">`}
-    html+=`<div class="li" data-v="${m.id}" style="cursor:pointer">${m.thumb?`<img class="pkth" src="${esc(m.thumb)}" alt="">`:`<div class="pkth" style="display:grid;place-items:center;color:var(--ord)">${ic('video')}</div>`}<div class="t"><div>${esc(m.code)}</div><div>${fmtClock(m.startedAt)} – ${fmtClock(m.endedAt)} · ${fmtDur(m.endedAt-m.startedAt)} · ${fmtSize(m.size||0)}</div></div>${m.recovered?'<span class="badge">กู้คืน</span>':''}${(m.endedAt||m.startedAt)<=oldT?'<span class="badge red">ครบ 7 วัน</span>':''}</div>`});
+    html+=`<div class="li" data-v="${m.id}" style="cursor:pointer">${m.thumb?`<img class="pkth" src="${esc(m.thumb)}" alt="">`:`<div class="pkth" style="display:grid;place-items:center;color:var(--ord)">${ic('video')}</div>`}<div class="t"><div>${esc(m.code)}</div><div>${fmtClock(m.startedAt)} – ${fmtClock(m.endedAt)} · ${fmtDur(m.endedAt-m.startedAt)} · ${fmtSize(m.size||0)}</div></div>${m.recovered?'<span class="badge">กู้คืน</span>':''}${(m.endedAt||m.startedAt)<=oldT?'<span class="badge red">ครบ 30 วัน</span>':''}</div>`});
   el.innerHTML=html+'</div>'+(l.length>show.length?`<div class="hint" style="text-align:center;margin:12px">แสดงล่าสุด ${show.length} จาก ${l.length} วิดีโอ ใช้ช่องค้นหาเพื่อดูรายการอื่น</div>`:'');
   el.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>pkPlay(e.dataset.v));
 }
@@ -1090,12 +1090,13 @@ async function pkPlay(id){const m=PK.metas.find(x=>x.id===id);if(!m)return;let b
   const row=(k,v)=>`<tr><td class="muted">${k}</td><td class="n"><b>${esc(v)}</b></td></tr>`,others=(m.codes||[]).filter(c=>c!==m.code);
   const why={hidden:'ออกจากแอพระหว่างอัด',leave:'เปลี่ยนเมนูระหว่างอัด',full:'พื้นที่เต็ม',error:'กล้องขัดข้อง'}[m.stopReason]||(m.recovered?'แอพปิดระหว่างอัด (กู้คืนส่วนที่อัดได้)':'');
   const canShare=(()=>{try{return !!(navigator.canShare&&navigator.canShare({files:[new File([b],name,{type:b.type})]}))}catch(e){return false}})();
+  const delAt=(m.endedAt||m.startedAt)+PK_KEEP,canDel=Date.now()>=delAt,left=Math.ceil((delAt-Date.now())/864e5);
   const ov=modal(`<h3>${ic('video')}${esc(m.code)}${closeBtn}</h3><video src="${url}" controls playsinline style="width:100%;max-height:52vh;background:#000;border-radius:14px;margin-top:10px"></video>
-    <table style="margin-top:8px">${row('วันที่',dLabel(ymd(s)))}${row('เริ่มบันทึก',fmtClock(m.startedAt))}${row('บันทึกเสร็จ',fmtClock(m.endedAt))}${row('ความยาว',fmtDur(m.endedAt-m.startedAt))}${row('ขนาดไฟล์',fmtSize(b.size))}${m.user?row('ผู้อัด',m.user):''}${others.length?row('รหัสอื่นบนใบปะหน้า',others.join(', ')):''}${why?row('หยุดเพราะ',why):''}</table>
-    <div class="row" style="margin-top:14px"><button class="btn red" id="pvd" style="padding:12px 14px;flex:none" aria-label="ลบวิดีโอ">${ic('trash')}</button>${canShare?`<button class="btn ghost" id="pvs" style="flex:1">${ic('send')}แชร์</button>`:''}<button class="btn" id="pvl" style="flex:1">${ic('dl')}บันทึกไฟล์</button></div>`,()=>URL.revokeObjectURL(url));
+    <table style="margin-top:8px">${row('วันที่',dLabel(ymd(s)))}${row('เริ่มบันทึก',fmtClock(m.startedAt))}${row('บันทึกเสร็จ',fmtClock(m.endedAt))}${row('ความยาว',fmtDur(m.endedAt-m.startedAt))}${row('ขนาดไฟล์',fmtSize(b.size))}${m.user?row('ผู้อัด',m.user):''}${others.length?row('รหัสอื่นบนใบปะหน้า',others.join(', ')):''}${why?row('หยุดเพราะ',why):''}${canDel?'':row('ลบได้ตั้งแต่',fmtDT(delAt))}</table>
+    <div class="row" style="margin-top:14px">${canDel?`<button class="btn red" id="pvd" style="padding:12px 14px;flex:none" aria-label="ลบวิดีโอ">${ic('trash')}</button>`:`<button class="btn ghost" disabled style="padding:12px 10px;flex:none;font-size:13px;color:var(--mu);cursor:default" aria-label="ยังลบไม่ได้ อีก ${left} วัน">${ic('trash')}อีก ${left} วัน</button>`}${canShare?`<button class="btn ghost" id="pvs" style="flex:1">${ic('send')}แชร์</button>`:''}<button class="btn" id="pvl" style="flex:1">${ic('dl')}บันทึกไฟล์</button></div>`,()=>URL.revokeObjectURL(url));
   ov.querySelector('#pvl').onclick=()=>{const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove()};
   const sh=ov.querySelector('#pvs');if(sh)sh.onclick=()=>navigator.share({files:[new File([b],name,{type:b.type})],title:m.code}).catch(()=>{});
-  ov.querySelector('#pvd').onclick=()=>confirmBox(`ลบวิดีโอ <b>${esc(m.code)}</b> ออกจากเครื่องนี้ถาวร? กู้คืนไม่ได้`,async()=>{closeModal(ov);try{await vDelete(m.id);toast('ลบวิดีโอแล้ว')}catch(e){toast('ลบไม่สำเร็จ','err')}pkList()},'ลบถาวร');
+  if(canDel)ov.querySelector('#pvd').onclick=()=>confirmBox(`ลบวิดีโอ <b>${esc(m.code)}</b> ออกจากเครื่องนี้ถาวร? กู้คืนไม่ได้`,async()=>{closeModal(ov);try{await vDelete(m.id);toast('ลบวิดีโอแล้ว')}catch(e){toast('ลบไม่สำเร็จ','err')}pkList()},'ลบถาวร');
 }
 
 /* ============ ส่งผ่าน LINE ============ */
