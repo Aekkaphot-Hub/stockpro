@@ -1175,7 +1175,7 @@ function openSettings(){
   ov.querySelector('#imf').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{closeModal(ov);importCSV(r.result)};r.readAsText(f,'UTF-8')};
   ov.querySelector('#rsf').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.products))throw 0;confirmBox('นำเข้าไฟล์สำรองขึ้นระบบกลาง: สินค้ารหัสเดียวกันจะถูกเขียนทับ ส่วนประวัติที่มีอยู่แล้วจะข้าม',()=>{importData(d).then(()=>toast('นำเข้าแล้ว')).catch(wErr);closeModal(ov)},'นำเข้า')}catch(x){toast('ไฟล์ไม่ถูกต้อง','err')}};r.readAsText(f)};
   const mbm=ov.querySelector('#mbm');if(mbm)mbm.onclick=()=>{closeModal(ov);membersDlg()};
-  ov.querySelector('#lo').onclick=()=>confirmBox('ออกจากระบบบนเครื่องนี้? (ข้อมูลในระบบกลางไม่หาย)',()=>{closeModal(ov);FA.signOut(auth)},'ออกจากระบบ');
+  ov.querySelector('#lo').onclick=()=>confirmBox('ออกจากระบบบนเครื่องนี้? (ข้อมูลในระบบกลางไม่หาย)',()=>{dFlush();closeModal(ov);FA.signOut(auth)},'ออกจากระบบ');
   const scp=ov.querySelector('#scp');if(scp)scp.onclick=()=>{navigator.clipboard.writeText(shopId).then(()=>toast('คัดลอกรหัสร้านแล้ว'),()=>{ov.querySelector('#sid').select();toast('กด Ctrl+C เพื่อคัดลอก')})};
   const lg=ov.querySelector('#lg');if(lg)lg.onclick=()=>confirmBox('ย้ายข้อมูลที่เก็บไว้ในเครื่องนี้ขึ้นระบบกลาง? (ควรทำครั้งเดียว)',()=>{importData(load()).then(()=>toast('ย้ายข้อมูลแล้ว')).catch(wErr);closeModal(ov)},'ย้ายข้อมูล');
 }
@@ -1219,7 +1219,7 @@ function showLogin(msg){
   <div id="gm" class="hint" style="color:var(--red);text-align:center;min-height:18px">${esc(msg||'')}</div>`);
   const m=t=>{$('#gm').textContent=t};
   const run=f=>async()=>{m('');try{await f()}catch(e){m(authMsg(e))}};
-  $('#gg').onclick=run(()=>FA.signInWithPopup(auth,new FA.GoogleAuthProvider()));
+  $('#gg').onclick=run(()=>{const gp=new FA.GoogleAuthProvider();gp.setCustomParameters({prompt:'select_account'});return FA.signInWithPopup(auth,gp)});   // ให้ Google ถามเลือกบัญชีทุกครั้ง (เปลี่ยน/เพิ่ม Gmail ได้)
   $('#gi').onclick=run(()=>FA.signInWithEmailAndPassword(auth,$('#ge').value.trim(),$('#gp').value));
   $('#gn').onclick=run(()=>FA.createUserWithEmailAndPassword(auth,$('#ge').value.trim(),$('#gp').value));
 }
@@ -1286,11 +1286,30 @@ function startListeners(){
   on(FS.query(col('counts'),FS.orderBy('countedAt','desc'),FS.limit(200)),'c',sn=>{S.counts=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
 }
 function enterShop(id){shopId=id;L.shopId=id;L.uid=user.uid;if(S.settings.user==='ฉัน'&&user.displayName)S.settings.user=user.displayName;save();
+  const pv=$('#view');if(pv)pv.innerHTML='';   // ล้างหน้าจอเดิม ไม่ให้เห็นข้อมูลของร้าน/บัญชีก่อนหน้า
   gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังโหลดข้อมูลร้าน…</p>');
   FS.setDoc(FS.doc(db,'shops',id,'people',user.uid),{name:S.settings.user||user.displayName||'',email:user.email||''},{merge:true}).catch(()=>{});
   startListeners()}
 function offerMigrate(){if(S.products.length||L.migrated)return;const o=load();if(!o.products.length)return;L.migrated=1;save();
   confirmBox(`พบข้อมูลเดิมในเครื่องนี้ (${o.products.length} สินค้า) ย้ายขึ้นระบบกลางเลยไหม?`,()=>importData(o).then(()=>toast('ย้ายข้อมูลแล้ว')).catch(wErr),'ย้ายข้อมูล')}
+/* สลับบัญชี: งานค้างในเครื่อง (ใบนับ, รายการสแกน, ชื่อผู้ใช้) เก็บแยกตามบัญชี ไม่ปนกันเมื่อเปลี่ยน Gmail */
+const profKey=id=>'stockpro_prof_'+id;
+function profSave(id){try{localStorage.setItem(profKey(id),JSON.stringify({draft:S.draft,bulk:S.bulk,user:S.settings.user}))}catch(e){}}
+function profLoad(u){let p={};try{p=JSON.parse(localStorage.getItem(profKey(u.uid)))||{}}catch(e){}
+  S.draft=p.draft||null;S.bulk=p.bulk||null;S.settings.user=p.user||u.displayName||'ฉัน'}
+function acctReset(){clearTimeout(dTimer);dpend={};hReset();while(modals.length)closeModal();
+  Object.assign(S,{products:[],movements:[],counts:[],draft:null,bulk:null,role:'viewer',members:{},people:{},lockEdits:false,daily:{},extras:[],dailyCut:true});
+  S.settings.shopName='ร้านของฉัน';S.settings.user='ฉัน';pq='';cq='';PK.q='';PK.day='';PK.metas=[];
+  D.q='';D.view='day';D.date=ymd(new Date());tab='products';const v=$('#view');if(v)v.innerHTML=''}
+async function onAuth(u){
+  const prev=user;user=u;
+  if(!u){stopListeners();if(prev)profSave(prev.uid);acctReset();shopId=null;L.shopId=null;L.uid=null;save();return showLogin()}
+  if(L.uid!==u.uid){if(L.uid)profSave(L.uid);acctReset();profLoad(u);L.uid=u.uid;L.shopId=null;save()}
+  if(L.shopId)return enterShop(L.shopId);
+  gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังตรวจสอบบัญชี…</p>');
+  try{const s=await FS.getDoc(FS.doc(db,'users',u.uid));if(user!==u)return;s.exists()?enterShop(s.data().shopId):showShop()}
+  catch(e){showLogin('โหลดข้อมูลบัญชีไม่ได้: '+(e.code||e.message))}
+}
 async function boot(){
   gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังเริ่มต้น…</p>');
   try{
@@ -1299,14 +1318,7 @@ async function boot(){
     const app=A.initializeApp(FBC);FA=Au;FS=F;auth=Au.getAuth(app);
     try{db=F.initializeFirestore(app,{localCache:F.persistentLocalCache({tabManager:F.persistentMultipleTabManager()})})}catch(e){db=F.getFirestore(app)}
   }catch(e){console.warn(e);gate('<p class="muted" style="text-align:center;margin:14px 0">โหลดระบบซิงก์ไม่ได้ — ต้องออนไลน์ในการเปิดครั้งแรก</p><button class="btn block" onclick="location.reload()">ลองใหม่</button>');return}
-  FA.onAuthStateChanged(auth,async u=>{
-    user=u;
-    if(!u){stopListeners();shopId=null;L.shopId=null;S.products=[];S.movements=[];S.counts=[];save();return showLogin()}
-    if(L.shopId&&L.uid===u.uid)return enterShop(L.shopId);
-    gate('<p class="muted" style="text-align:center;margin-top:14px">กำลังตรวจสอบบัญชี…</p>');
-    try{const s=await FS.getDoc(FS.doc(db,'users',u.uid));s.exists()?enterShop(s.data().shopId):showShop()}
-    catch(e){showLogin('โหลดข้อมูลบัญชีไม่ได้: '+(e.code||e.message))}
-  });
+  FA.onAuthStateChanged(auth,onAuth);
 }
 
 /* ============ เริ่มต้น ============ */
