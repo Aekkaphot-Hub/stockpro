@@ -944,6 +944,19 @@ function pkMime(){if(!window.MediaRecorder)return null;return ['video/mp4;codecs
 async function pkDecoder(){
   if('BarcodeDetector' in window){try{const sup=await BarcodeDetector.getSupportedFormats(),f=PK_FMT.filter(x=>sup.includes(x));
     if(f.length){const d=new BarcodeDetector({formats:f});return async src=>(await d.detect(src)).map(x=>({v:x.rawValue,f:x.format}))}}catch(e){}}
+  // zxing-cpp (WASM): เร็วกว่าและอ่านได้แม้ใบปะหน้าเอียง/ตั้งแนวตั้ง — หมุนภาพสลับมุมทีละเฟรม (tryRotate ครอบคลุมมุม 90° อยู่แล้ว)
+  try{const z=await import('https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.6/dist/es/reader/index.js/+esm');
+    if(z.prepareZXingModule)await z.prepareZXingModule({fireImmediately:true});
+    const FMAP={Code128:'code_128',Code39:'code_39',Code93:'code_93',QRCode:'qr_code',DataMatrix:'data_matrix'};
+    const opt={formats:Object.keys(FMAP),tryHarder:true,tryRotate:true,tryInvert:false,tryDownscale:true,maxNumberOfSymbols:4};
+    const ANG=[0,15,-15,0,30,-30,0,45,-45],c=document.createElement('canvas'),x=c.getContext('2d',{willReadFrequently:true});let i=0;
+    return async src=>{const w=src.videoWidth,h=src.videoHeight;if(!w)return[];const k=Math.min(1,1280/Math.max(w,h)),W=Math.round(w*k),H=Math.round(h*k);
+      if(c.width!==W)c.width=W;if(c.height!==H)c.height=H;const a=ANG[i++%ANG.length];
+      x.setTransform(1,0,0,1,0,0);if(a){x.fillStyle='#fff';x.fillRect(0,0,W,H);x.translate(W/2,H/2);x.rotate(a*Math.PI/180);x.translate(-W/2,-H/2)}x.drawImage(src,0,0,W,H);
+      const r=(await z.readBarcodes(x.getImageData(0,0,W,H),opt)).filter(q=>q.isValid!==false&&q.text);
+      if(r.length)i--;   // เจอที่มุมนี้ → เฟรมถัดไปใช้มุมเดิม (อ่านซ้ำเพื่อหยุดได้เร็ว)
+      return r.map(q=>({v:q.text,f:FMAP[q.format]||String(q.format).toLowerCase()}))}
+  }catch(e){console.warn('zxing-wasm',e)}
   if(!window.ZXing)await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';s.crossOrigin='anonymous';s.onload=res;s.onerror=rej;document.head.append(s)});
   const Z=window.ZXing,hints=new Map(),rd=new Z.MultiFormatReader(),c=document.createElement('canvas'),x=c.getContext('2d',{willReadFrequently:true});
   hints.set(Z.DecodeHintType.POSSIBLE_FORMATS,[Z.BarcodeFormat.CODE_128,Z.BarcodeFormat.CODE_39,Z.BarcodeFormat.CODE_93,Z.BarcodeFormat.QR_CODE,Z.BarcodeFormat.DATA_MATRIX]);
@@ -964,6 +977,7 @@ async function pkCam(){
     if(tk!==PK.token||tab!=='pack'||!$('#pkv')){st.getTracks().forEach(t=>t.stop());return}
     PK.stream=st;PK.video=$('#pkv');PK.canvas=$('#pkc');PK.ctx=PK.canvas.getContext('2d',{alpha:false});
     PK.video.srcObject=st;await PK.video.play();
+    try{await st.getVideoTracks()[0].applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(e){}   // มือถือ: โฟกัสอัตโนมัติต่อเนื่อง
     if(!PK.dec)PK.dec=await pkDecoder().catch(e=>{console.warn(e);return null});
     if(tk!==PK.token)return;
     if(!PK.dec)toast('สแกนอัตโนมัติไม่ได้ในเครื่องนี้ พิมพ์เลขพัสดุแทนได้','err');
@@ -972,9 +986,10 @@ async function pkCam(){
 }
 function packLeave(){if(PK.rec)pkStop('leave');PK.token++;clearTimeout(PK.scanT);cancelAnimationFrame(PK.raf);pkTracksStop();if(PK.wake){PK.wake.release().catch(()=>{});PK.wake=null}}
 document.addEventListener('visibilitychange',()=>{if(tab!=='pack'||!ready)return;if(document.hidden)packLeave();else if($('#pkroot'))pkCam()});
-function pkTick(tk){if(tk!==PK.token)return;(async()=>{let l=[];
+function pkTick(tk){if(tk!==PK.token)return;(async()=>{let l=[];const t0=performance.now();
   if(PK.dec&&PK.video&&PK.video.videoWidth&&!(PK.rec&&PK.rec.ending)){try{l=await PK.dec(PK.video)}catch(e){}}
-  if(tk!==PK.token)return;pkSeen(l);pkUI();PK.scanT=setTimeout(()=>pkTick(tk),PK.rec?350:220)})()}
+  if(tk!==PK.token)return;pkSeen(l);pkUI();
+  PK.scanT=setTimeout(()=>pkTick(tk),Math.max(0,(PK.rec?200:60)-(performance.now()-t0)))})()}   // รอสแกน: อ่านเกือบต่อเนื่อง / ระหว่างอัด: เว้นช่วงให้เครื่องอัดวิดีโอลื่น
 const pkValid=v=>/^[A-Za-z0-9_-]{6,40}$/.test(v)&&!findByCode(v);   // ตัด URL/ข้อความ และบาร์โค้ดที่เป็นสินค้าในระบบ
 const pkScore=x=>(x.f!=='qr_code'&&x.f!=='data_matrix'?4:0)+(x.v.length>=10&&x.v.length<=22?2:0)+(/[A-Za-z]/.test(x.v)&&/\d/.test(x.v)?1:0);
 function pkAddCode(r,x){if(!r.m.codes.includes(x.v))r.m.codes.push(x.v);const s=pkScore(x);if(s>r.best){r.best=s;r.m.code=x.v}}
@@ -989,7 +1004,8 @@ function pkSeen(list){
   if(PK.block){if(now-PK.block.at<2000)return;
     if(vals.some(v=>PK.block.codes.includes(v))){PK.block.last=now;return}
     if(now-PK.block.last>3000)PK.block=null}
-  for(const x of hits){if(PK.cand[x.v]&&now-PK.cand[x.v]<1500){PK.cand={};return pkStart(hits.slice().sort((a,b)=>pkScore(b)-pkScore(a))[0],hits)}PK.cand[x.v]=now}   // อ่านตรงกัน 2 ครั้งจึงเริ่ม
+  // เริ่มอัดทันทีที่อ่านได้ครั้งแรก (Code128/93, QR, DataMatrix มีตัวตรวจสอบความถูกต้องในตัว) — Code39 ไม่มี จึงต้องอ่านตรงกัน 2 ครั้ง
+  for(const x of hits){if(x.f!=='code_39'||(PK.cand[x.v]&&now-PK.cand[x.v]<1500)){PK.cand={};return pkStart(hits.slice().sort((a,b)=>pkScore(b)-pkScore(a))[0],hits)}PK.cand[x.v]=now}
 }
 function pkText(code){code=(code||'').trim();if(!code)return false;const r=PK.rec;   // ช่องพิมพ์ / เครื่องสแกน USB
   if(r){if(r.ending)return false;if(r.m.codes.includes(code)){if(Date.now()-r.m.startedAt<1500)return false;pkStop('scan');return true}

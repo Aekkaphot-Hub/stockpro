@@ -1,4 +1,4 @@
-const CACHE = 'stockpro-v3';
+const CACHE = 'stockpro-v4';
 const FILES = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -19,7 +19,8 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   const mine = url.origin === location.origin;
   const lib = (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/'))
-    || (url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/npm/@zxing/library@'));
+    || ((url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'fastly.jsdelivr.net')
+        && (url.pathname.startsWith('/npm/@zxing/library@') || url.pathname.startsWith('/npm/zxing-wasm@')));
   if (!mine && !lib) return;
   e.respondWith(
     fetch(e.request).then(res => {
