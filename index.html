@@ -294,6 +294,7 @@ function applyMovement(pid,type,delta,reason,ts,wb){
   const own=!wb;wb=wb||mkBatch();
   p.qty=Math.round((p.qty+delta)*1000)/1000;
   const mid=uid('m'),m={ts:ts||Date.now(),productId:pid,type,qty:delta,after:p.qty,reason:reason||'',user:S.settings.user||''};
+  if(wb.room)wb.room(2);
   S.movements.push(Object.assign({id:mid},m));
   wb.set(MR(mid),m);                              // บันทึกประวัติ
   wb.update(PR(pid),{qty:FS.increment(delta)});   // increment: หลายเครื่องแก้พร้อมกัน/ออฟไลน์ ยอดจะบวกรวมถูกต้อง
@@ -414,7 +415,7 @@ function editProduct(id,pre){
   ov.querySelector('#fsave').onclick=()=>{
     const name=ov.querySelector('#fn').value.trim();if(!name)return toast('กรุณาใส่ชื่อสินค้า','err');
     const sku=ov.querySelector('#fs').value.trim(),barcode=ov.querySelector('#fb').value.trim();
-    if(sku&&S.products.some(x=>x.id!==id&&x.sku.toLowerCase()===sku.toLowerCase()))return toast('SKU นี้มีอยู่แล้ว','err');
+    if(sku&&S.products.some(x=>x.id!==id&&(x.sku||'').toLowerCase()===sku.toLowerCase()))return toast('SKU นี้มีอยู่แล้ว','err');
     if(barcode&&S.products.some(x=>x.id!==id&&x.barcode===barcode))return toast('บาร์โค้ดนี้มีอยู่แล้ว','err');
     const d={name,sku,barcode,cat:ov.querySelector('#fc').value.trim(),cost:num(ov.querySelector('#fcost').value),price:num(ov.querySelector('#fprice').value),reorder:num(ov.querySelector('#fr').value),img};
     const wb=mkBatch();
@@ -669,7 +670,8 @@ function donut(items,unit){
 function sl(i){const[n,v,p]=window._sl[i];const t1=$('#dc1'),t2=$('#dc2');if(!t1)return;t1.textContent=money(v);t2.textContent=`${n.length>16?n.slice(0,15)+'…':n} (${p}%)`}
 function rMonth(){
   const y=R.y,m=R.m,a=new Date(y,m,1).getTime(),b=new Date(y,m+1,1).getTime();
-  const mv=S.movements.filter(x=>x.ts>=a&&x.ts<b);
+  const mv=mvRange(a,b,()=>{if(tab==='report'&&R.tab==='month'&&R.y===y&&R.m===m)rMonth()});
+  if(!mv){$('#rb').innerHTML=`<div class="monthbar"><button class="iconbtn" onclick="mshift(-1)">${ic('l')}</button><b>${MONTHS[m]} ${y+543}</b><button class="iconbtn" onclick="mshift(1)">${ic('r')}</button></div><div class="empty">กำลังโหลดประวัติของเดือนนี้…</div>`;return}
   const sum=ts=>mv.filter(x=>ts.includes(x.type)).reduce((s,x)=>s+Math.abs(x.qty),0);
   const rounds=S.counts.filter(c=>c.countedAt>=a&&c.countedAt<b).length;
   const val=S.products.reduce((s,p)=>s+p.qty*p.cost,0);
@@ -689,8 +691,9 @@ function rLow(){
   $('#rb').innerHTML=l.length?`<div class="plist">${l.map(p=>`<div class="prod low" onclick="editProduct('${p.id}')">${thumb(p)}<div class="info"><div class="nm">${esc(p.name)}</div><div class="sk">จุดสั่งซื้อ ≤ ${p.reorder}</div><span class="badge red">${p.qty<=0?'หมด':'ใกล้หมด'}</span></div><div class="qty low"><b>${p.qty}</b><small>คงเหลือ</small></div></div>`).join('')}</div>`:`<div class="empty">${ic('check')}<div>สต๊อกปกติทุกรายการ 👍</div></div>`;
 }
 function rBest(){
-  const since=Date.now()-30*864e5,mp={};
-  S.movements.filter(x=>x.type==='out'&&x.ts>=since).forEach(x=>mp[x.productId]=(mp[x.productId]||0)+Math.abs(x.qty));
+  const since=Date.now()-30*864e5,mp={},mv=mvRange(since,Date.now()+864e5,()=>{if(tab==='report'&&R.tab==='best')rBest()});
+  if(!mv){$('#rb').innerHTML='<div class="empty">กำลังโหลดประวัติ 30 วัน…</div>';return}
+  mv.filter(x=>x.type==='out'&&x.ts>=since).forEach(x=>mp[x.productId]=(mp[x.productId]||0)+Math.abs(x.qty));
   const arr=S.products.map(p=>({p,v:mp[p.id]||0}));
   const best=[...arr].filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,10),slow=arr.filter(x=>x.v===0&&x.p.qty>0).sort((a,b)=>b.p.qty-a.p.qty).slice(0,10);
   const row=(x,k)=>`<div class="li"><div style="width:30px;font-weight:800;color:var(--or)">${k}</div><div class="thumb" style="width:44px;height:44px;font-size:18px;${x.p.img?`background-image:url(${x.p.img})`:''}">${x.p.img?'':ic('box')}</div><div class="t"><div>${esc(x.p.name)}</div><div>คงเหลือ ${x.p.qty}</div></div><div class="d">${x.v?x.v+' ชิ้น':'—'}</div></div>`;
@@ -716,23 +719,28 @@ function rHist(){
    กด +/− จะรวมไว้ก่อน 0.8 วินาทีแล้วค่อยบันทึกครั้งเดียว (ประหยัดการเขียน) และตัดสต๊อกถ้าเปิด "ตัดสต๊อกอัตโนมัติ" */
 const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const dLabel=s=>new Date(s+'T00:00').toLocaleDateString('th-TH',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-let D={view:'day',date:ymd(new Date()),q:''},dUnsub=null,dMonth=null,dpend={},dTimer=null;
+let D={view:'day',date:ymd(new Date()),q:'',lastToday:ymd(new Date())},dUnsub=null,dMonth=null,dpend={},dTimer=null;
+/* เปิดแอปค้างข้ามเที่ยงคืน: ถ้ากำลังดู "วันนี้" อยู่ ให้เลื่อนไปวันใหม่เอง ไม่ให้ยอดไปลงวันเก่า */
+function dRoll(){const t=ymd(new Date()),r=D.lastToday!==t&&D.date===D.lastToday;D.lastToday=t;
+  if(r){dFlush();D.date=t;toast('ขึ้นวันใหม่แล้ว — เปลี่ยนเป็น '+dLabel(t))}return r}
+setInterval(()=>{if(tab==='daily'&&ready&&dRoll())vDaily()},60000);
 S.daily={};S.dailyCut=true;S.extras=[];
 function dListen(){const m=D.date.slice(0,7);if(m===dMonth&&dUnsub)return;if(dUnsub)dUnsub();dMonth=m;S.daily={};
   const col=n=>FS.collection(db,'shops',shopId,n);
   const u1=FS.onSnapshot(FS.query(col('daily'),FS.where('month','==',m)),
-    sn=>{S.daily={};sn.docs.forEach(d=>{S.daily[d.id]=d.data()});if(tab==='daily')refresh()},e=>console.warn(e));
+    sn=>{S.daily={};sn.docs.forEach(d=>{if(DAY_ID.test(d.id))S.daily[d.id]=cleanDaily(d.data())});if(tab==='daily')refresh()},e=>console.warn(e));
   const u2=FS.onSnapshot(col('dailyItems'),   // รายการสินค้านอกสต๊อก (ใช้เฉพาะเมนูนับรายวัน)
-    sn=>{S.extras=sn.docs.map(d=>Object.assign({id:d.id},d.data()));if(tab==='daily')refresh()},e=>console.warn(e));
+    sn=>{S.extras=sn.docs.filter(d=>SAFE_ID.test(d.id)).map(d=>cleanExtra(d.id,d.data()));if(tab==='daily')refresh()},e=>console.warn(e));
   dUnsub=()=>{u1();u2()}}
 const XI=id=>S.extras.find(x=>x.id===id);
 function dGet(date,pid){const it=((S.daily[date]||{}).items||{})[pid]||{},p=P(pid)||XI(pid);
   return {q:(it.q||0)+(dpend[date+'|'+pid]||0),price:it.price!=null?it.price:(p?num(p.price):0),name:it.name||(p?p.name:'(ลบแล้ว)')}}
-function dTap(pid,d){if(!canEdit())return needEdit();if(dGet(D.date,pid).q+d<0)return;
+function dTap(pid,d){if(!canEdit())return needEdit();if(dRoll())vDaily();if(dGet(D.date,pid).q+d<0)return;
   const k=D.date+'|'+pid;dpend[k]=(dpend[k]||0)+d;dRow(pid);dTotals();clearTimeout(dTimer);dTimer=setTimeout(dFlush,800)}
 function dFlush(){clearTimeout(dTimer);const ks=Object.keys(dpend).filter(k=>dpend[k]);if(!ks.length){dpend={};return}
   const wb=mkBatch(),today=ymd(new Date());
   ks.forEach(k=>{const [date,pid]=k.split('|'),d=dpend[k],x=dGet(date,pid);
+    wb.room(4);   // ยอดวัน + บันทึก + ประวัติสต๊อก + ยอดสินค้า อยู่ชุดเดียวกัน
     wb.set(FS.doc(db,'shops',shopId,'daily',date),{date,month:date.slice(0,7),updatedAt:Date.now(),items:{[pid]:{q:FS.increment(d),price:x.price,name:x.name}}},{merge:true});
     wb.set(FS.doc(db,'shops',shopId,'dailyLog',uid('l')),{date,ts:Date.now(),pid,name:x.name,delta:d,after:x.q,price:x.price,user:S.settings.user||''});   // บันทึกการเพิ่ม/ลดแต่ละครั้ง (ดูในหน้าประวัติ)
     const day=S.daily[date]=S.daily[date]||{date,items:{}};day.items=day.items||{};day.items[pid]=Object.assign({},day.items[pid],{q:x.q,price:x.price,name:x.name});   // อัปเดตในเครื่องทันที
@@ -750,7 +758,7 @@ function dMonthData(){const m=D.date.slice(0,7),days=Object.keys(S.daily).filter
   const agg={};days.forEach(d=>Object.keys(S.daily[d].items||{}).forEach(pid=>{const x=dGet(d,pid);if(x.q>0){const a=agg[pid]=agg[pid]||{n:x.name,q:0,amt:0};a.q+=x.q;a.amt+=x.q*x.price}}));
   return {m,rows,tot,top:Object.values(agg).sort((a,b)=>b.amt-a.amt)}}
 function vDaily(){
-  dListen();
+  dRoll();dListen();
   $('#view').innerHTML=`${roBanner()}<h2>${ic('calendar',26)}นับสินค้ารายวัน<span class="sp"></span><button class="btn sm" style="background:linear-gradient(135deg,#06c755,#3be07f);color:#04230f;box-shadow:none" onclick="dFlush();lineDlg('daily')">${ic('send',16)}LINE</button></h2>
   <div class="tabs"><button class="tab ${D.view==='day'?'on':''}" onclick="dFlush();D.view='day';vDaily()">${ic('calendar',16)}รายวัน</button><button class="tab ${D.view==='month'?'on':''}" onclick="dFlush();D.view='month';vDaily()">${ic('pie',16)}สรุปรายเดือน</button><button class="tab ${D.view==='hist'?'on':''}" onclick="dFlush();hReset();D.view='hist';vDaily()">${ic('clock',16)}ประวัติ</button></div><div id="db"></div>`;
   ({day:dDay,month:dMonthV,hist:dHist})[D.view]();
@@ -853,7 +861,7 @@ function hReset(){H={docs:[],last:null,done:false,loading:false,open:{},logs:{}}
 /* โหลดบันทึกการเพิ่ม/ลดของวันนั้น (โหลดใหม่ทุกครั้งที่เปิดดู) */
 async function hLogLoad(day){H.logs[day]='loading';hRender();
   try{const sn=await FS.getDocs(FS.query(FS.collection(db,'shops',shopId,'dailyLog'),FS.where('date','==',day)));
-    H.logs[day]=sn.docs.map(d=>d.data()).sort((a,b)=>a.ts-b.ts)}
+    H.logs[day]=sn.docs.map(d=>cleanLog(d.data())).sort((a,b)=>a.ts-b.ts)}
   catch(e){H.logs[day]=[];wErr(e)}
   hRender()}
 function hLogHtml(day){const lg=H.logs[day];
@@ -865,13 +873,13 @@ function hLogHtml(day){const lg=H.logs[day];
   return `<div style="margin-top:14px"><div class="row"><b style="font-size:14px">${ic('clock',14)} ความเคลื่อนไหวของวัน</b><span class="sp"></span>${Array.isArray(lg)?`<span class="muted" style="font-size:12px">${lg.length} ครั้ง</span>`:''}</div>${body}</div>`}
 async function hLoad(){if(H.loading||H.done)return;H.loading=true;hRender();
   try{const q=FS.query(FS.collection(db,'shops',shopId,'daily'),FS.orderBy('date','desc'),...(H.last?[FS.startAfter(H.last)]:[]),FS.limit(31));
-    const sn=await FS.getDocs(q);sn.docs.forEach(d=>H.docs.push(Object.assign({id:d.id},d.data())));
+    const sn=await FS.getDocs(q);sn.docs.forEach(d=>{if(DAY_ID.test(d.id))H.docs.push(Object.assign({id:d.id},cleanDaily(d.data())))});
     if(sn.docs.length)H.last=sn.docs[sn.docs.length-1];if(sn.docs.length<31)H.done=true}
   catch(e){wErr(e)}
   H.loading=false;hRender()}
 function hDay(doc){const d=S.daily[doc.id]||doc,its=d.items||{},rows=[];let amt=0,q=0,cost=0;   // เดือนที่เปิดอยู่ใช้ข้อมูลสด
   Object.keys(its).forEach(pid=>{const it=its[pid],n=num(it.q);if(n<=0)return;const p=P(pid)||XI(pid),price=num(it.price);
-    amt+=n*price;q+=n;cost+=n*(p?num(p.cost):0);rows.push({name:it.name||(p?p.name:'(ลบแล้ว)'),q:n,price,ext:!P(pid)})});
+    amt+=n*price;q+=n;cost+=n*(p?num(p.cost):0);rows.push({name:it.name||(p?p.name:'(ลบแล้ว)'),q:n,price,ext:!P(pid)&&(pid[0]==='x'||!!XI(pid))})});
   rows.sort((a,b)=>b.q*b.price-a.q*a.price);return {amt,q,cost,rows}}
 function dHist(){if(!H.docs.length&&!H.done&&!H.loading)hLoad();else hRender()}
 function hRender(){const el=$('#db');if(!el||D.view!=='hist')return;
@@ -1119,7 +1127,7 @@ async function pkPlay(id){const m=PK.metas.find(x=>x.id===id);if(!m)return;let b
 const hdr=t=>`${t}\n🏪 ${S.settings.shopName}\n🕒 ${fmtDT(Date.now())}\n`;
 function txtLow(){const l=S.products.filter(p=>p.qty<=p.reorder).sort((a,b)=>a.qty-b.qty);
   return hdr('⚠️ สินค้าใกล้หมด')+'\n'+(l.length?l.map(p=>`• ${p.name}${p.sku?' ('+p.sku+')':''}: เหลือ ${p.qty} (จุดสั่ง ≤${p.reorder})`).join('\n'):'สต๊อกปกติทุกรายการ ✅')}
-function txtMonth(){const a=new Date(R.y,R.m,1).getTime(),b=new Date(R.y,R.m+1,1).getTime(),mv=S.movements.filter(x=>x.ts>=a&&x.ts<b);
+function txtMonth(){const a=new Date(R.y,R.m,1).getTime(),b=new Date(R.y,R.m+1,1).getTime(),mv=mvRange(a,b)||S.movements.filter(x=>x.ts>=a&&x.ts<b);
   const sm=ts=>mv.filter(x=>ts.includes(x.type)).reduce((s,x)=>s+Math.abs(x.qty),0);
   const mp={};mv.filter(x=>x.type==='out').forEach(x=>mp[x.productId]=(mp[x.productId]||0)+Math.abs(x.qty));
   const top=Object.entries(mp).sort((x,y)=>y[1]-x[1]).slice(0,5);
@@ -1161,7 +1169,7 @@ function importCSV(text){
   if(ix('name')<0)return toast('ต้องมีคอลัมน์ name','err');
   let add=0,upd=0;const wb=mkBatch();
   rows.slice(1).forEach(r=>{const g=k=>ix(k)>=0?(r[ix(k)]||'').trim():'';const name=g('name');if(!name)return;
-    const sku=g('sku'),ex=sku&&S.products.find(p=>p.sku.toLowerCase()===sku.toLowerCase());
+    const sku=g('sku'),ex=sku&&S.products.find(p=>(p.sku||'').toLowerCase()===sku.toLowerCase());wb.room(3);
     const d={name,sku,barcode:g('barcode'),cat:g('cat'),cost:num(g('cost')),price:num(g('price')),reorder:g('reorder')===''?5:num(g('reorder'))};
     if(ex){Object.assign(ex,d);wb.update(PR(ex.id),strip(d));upd++}else{const np=Object.assign({id:uid('p'),qty:0,img:''},d);S.products.push(np);wb.set(PR(np.id),strip(np));const q=num(g('qty'));if(q>0)applyMovement(np.id,'in',q,'นำเข้าจากไฟล์',null,wb);add++}});
   wb.commit().catch(wErr);toast(`เพิ่ม ${add} · อัปเดต ${upd} รายการ`);render();
@@ -1200,10 +1208,36 @@ function demo(){
   if(!canEdit())return needEdit();
   const d=[['TS-BLK-M','8850000000011','เสื้อยืดสีดำ M','เสื้อผ้า',120,299,24,5],['TS-BLK-L','8850000000028','เสื้อยืดสีดำ L','เสื้อผ้า',120,299,3,5],['CAP-ORG','8850000000035','หมวกแก๊ปสีส้ม','เครื่องประดับ',90,229,15,4],['BAG-01','8850000000042','กระเป๋าผ้า','เครื่องประดับ',60,159,40,10],['MUG-BK','8850000000059','แก้วเซรามิกดำ','ของใช้',45,129,0,6],['NB-A5','8850000000066','สมุดโน้ต A5','เครื่องเขียน',25,79,60,15]];
   const t0=Date.now(),wb=mkBatch();
-  d.forEach((r,i)=>{const p={id:uid('p'),sku:r[0],barcode:r[1],name:r[2],cat:r[3],cost:r[4],price:r[5],qty:0,reorder:r[7],img:''};S.products.push(p);wb.set(PR(p.id),strip(p));
+  d.forEach((r,i)=>{const p={id:uid('p'),sku:r[0],barcode:r[1],name:r[2],cat:r[3],cost:r[4],price:r[5],qty:0,reorder:r[7],img:''};S.products.push(p);wb.room(5);wb.set(PR(p.id),strip(p));
     if(r[6]){applyMovement(p.id,'in',r[6]+8+i,'ยอดยกมา',t0-12*864e5,wb);applyMovement(p.id,'out',-(8+i),'ขายออก',t0-(3+i)*864e5,wb)}});
   wb.commit().catch(wErr);toast('เพิ่มข้อมูลตัวอย่างแล้ว');render();
 }
+
+/* ============ ตรวจข้อมูลที่อ่านจาก Firebase ก่อนนำไปแสดง ============
+   กันข้อมูลแปลกปลอม (เช่น ใส่โค้ดในรูป/ตัวเลข/รหัส) ไม่ให้ไปทำงานในหน้าจอของคนอื่นในร้าน */
+const SAFE_ID=/^[\w-]{1,100}$/,DAY_ID=/^\d{4}-\d{2}-\d{2}$/;
+const safeImg=s=>typeof s==='string'&&/^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(s)?s:'';
+const str=v=>v==null?'':String(v);
+const cleanProduct=(id,d)=>Object.assign({},d,{id,name:str(d.name),sku:str(d.sku),barcode:str(d.barcode),cat:str(d.cat),qty:num(d.qty),reorder:num(d.reorder),cost:num(d.cost),price:num(d.price),img:safeImg(d.img)});
+const cleanMove=(id,d)=>Object.assign({},d,{id,ts:num(d.ts),productId:str(d.productId),type:str(d.type),qty:num(d.qty),after:num(d.after),reason:str(d.reason),user:str(d.user)});
+const cleanCount=(id,d)=>Object.assign({},d,{id,name:str(d.name),counter:str(d.counter),countedAt:num(d.countedAt),applied:!!d.applied,
+  items:Array.isArray(d.items)?d.items.map(i=>({productId:str(i&&i.productId),system:num(i&&i.system),counted:num(i&&i.counted)})):[]});
+const cleanDaily=d=>{const items={};Object.entries(d.items||{}).forEach(([k,v])=>{if(SAFE_ID.test(k)&&v&&typeof v==='object')items[k]={q:num(v.q),price:v.price==null?null:num(v.price),name:str(v.name)}});return Object.assign({},d,{items})};
+const cleanExtra=(id,d)=>Object.assign({},d,{id,name:str(d.name),price:num(d.price),cost:num(d.cost)});
+const cleanLog=d=>Object.assign({},d,{ts:num(d.ts),name:str(d.name),user:str(d.user),type:str(d.type),delta:num(d.delta),after:num(d.after),price:num(d.price),prev:num(d.prev)});
+
+/* ประวัติเกิน 2000 รายการ: เดือนเก่าดึงจาก Firebase เฉพาะช่วงที่ขอ (รวมกับข้อมูลล่าสุดในเครื่อง) */
+const MV_LIMIT=2000;let MVC={};
+function mvRange(a,b,onReady){
+  const mv=S.movements,inR=x=>x.ts>=a&&x.ts<b;let oldest=Infinity;mv.forEach(x=>{if(x.ts<oldest)oldest=x.ts});
+  if(mv.length<MV_LIMIT||oldest<=a)return mv.filter(inR);   // ข้อมูลในเครื่องครอบคลุมช่วงนี้ครบแล้ว
+  const k=a+'_'+b,c=MVC[k];
+  if(c&&c.data&&Date.now()-c.t<300000){const m=new Map();c.data.filter(inR).forEach(x=>m.set(x.id,x));mv.filter(inR).forEach(x=>m.set(x.id,x));return [...m.values()]}
+  if(!c||!c.loading){MVC[k]={loading:true,data:c&&c.data,t:c?c.t:0};
+    FS.getDocs(FS.query(FS.collection(db,'shops',shopId,'movements'),FS.where('ts','>=',a),FS.where('ts','<',b)))
+      .then(sn=>{MVC[k]={data:sn.docs.map(d=>cleanMove(d.id,d.data())),t:Date.now()};if(onReady)onReady()})
+      .catch(e=>{delete MVC[k];wErr(e)})}
+  return c&&c.data?c.data:null}   // null = กำลังโหลด
 
 /* ============ Firebase: ล็อกอิน + ซิงก์ข้อมูล ============ */
 const FBC={apiKey:"AIzaSyCyFyzjGI7yXmjMJbdSLFrhzcKH58rwErg",authDomain:"stockpro-181ea.firebaseapp.com",projectId:"stockpro-181ea",storageBucket:"stockpro-181ea.firebasestorage.app",messagingSenderId:"429135153077",appId:"1:429135153077:web:1999fb57cce1af25117bfc"};
@@ -1211,11 +1245,13 @@ let FA,FS,db,auth,user=null,shopId=null,ready=false,unsubs=[],dirty=false,first=
 const strip=o=>{const r=Object.assign({},o);delete r.id;return JSON.parse(JSON.stringify(r))};   // ตัด id และค่า undefined (Firestore ไม่รับ)
 const PR=id=>FS.doc(db,'shops',shopId,'products',id),MR=id=>FS.doc(db,'shops',shopId,'movements',id),CR=id=>FS.doc(db,'shops',shopId,'counts',id);
 const wErr=e=>{console.warn(e);toast(e&&e.code==='permission-denied'?'ไม่มีสิทธิ์ทำรายการนี้':'บันทึกไม่สำเร็จ: '+((e&&e.message)||e),'err')};
-/* batch ที่แบ่งส่งอัตโนมัติทุก 450 รายการ (ขีดจำกัด Firestore คือ 500) */
+/* batch แบ่งส่งชุดละไม่เกิน 16 รายการ: กติกา Firebase นับการตรวจสิทธิ์ได้ไม่เกิน 20 ครั้งต่อชุด
+   room(k) = ขอให้ k รายการถัดไปอยู่ชุดเดียวกัน (เช่น ประวัติ + ยอดสินค้า จะไม่ถูกแยกกัน) */
+const BATCH_MAX=16;
 function mkBatch(){let b=FS.writeBatch(db),n=0;const ps=[];
   const flush=()=>{ps.push(b.commit());b=FS.writeBatch(db);n=0};
-  const bump=()=>{if(++n>=450)flush()};
-  return {set(r,d,o){o?b.set(r,d,o):b.set(r,d);bump()},update(r,d){b.update(r,d);bump()},commit(){if(n)flush();return Promise.all(ps)}}}
+  const bump=()=>{if(++n>=BATCH_MAX)flush()};
+  return {room(k){if(n&&n+k>BATCH_MAX)flush()},set(r,d,o){o?b.set(r,d,o):b.set(r,d);bump()},update(r,d){b.update(r,d);bump()},commit(){if(n)flush();return Promise.all(ps)}}}
 async function importData(d){
   if(!canEdit())return needEdit();const wb=mkBatch(),mid=new Set(S.movements.map(m=>m.id)),cid=new Set(S.counts.map(c=>c.id));
   (d.products||[]).forEach(p=>p.id&&wb.set(PR(p.id),strip(p)));
@@ -1290,7 +1326,7 @@ function setSync(){const e=$('#sync');if(!e)return;const off=!navigator.onLine,p
 addEventListener('online',setSync);addEventListener('offline',setSync);
 function changed(){setSync();clearTimeout(tmr);tmr=setTimeout(()=>{
   if(!ready){if(first.p&&first.m&&first.c){ready=true;gateOff();render();offerMigrate()}}else refresh();if(mRedraw)mRedraw()},50)}
-function stopListeners(){packLeave();unsubs.forEach(u=>u());unsubs=[];if(dUnsub){dUnsub();dUnsub=null;dMonth=null}first={};pend={};ready=false}
+function stopListeners(){packLeave();MVC={};unsubs.forEach(u=>u());unsubs=[];if(dUnsub){dUnsub();dUnsub=null;dMonth=null}first={};pend={};ready=false}
 function startListeners(){
   stopListeners();
   const on=(q,k,cb)=>unsubs.push(FS.onSnapshot(q,{includeMetadataChanges:true},sn=>{pend[k]=sn.metadata.hasPendingWrites;first[k]=1;cb(sn);changed()},
@@ -1298,9 +1334,9 @@ function startListeners(){
   const col=n=>FS.collection(db,'shops',shopId,n);
   on(FS.doc(db,'shops',shopId),'s',sn=>{if(!sn.exists())return;const d=sn.data();S.settings.shopName=d.name||'ร้านของฉัน';S.members=d.members||{};S.role=S.members[user.uid]||'viewer';S.lockEdits=!!d.lockEdits;S.dailyCut=d.dailyCut!==false;first.s=1});
   on(col('people'),'g',sn=>{S.people={};sn.docs.forEach(d=>{S.people[d.id]=d.data()})});
-  on(col('products'),'p',sn=>{S.products=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
-  on(FS.query(col('movements'),FS.orderBy('ts','desc'),FS.limit(2000)),'m',sn=>{S.movements=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
-  on(FS.query(col('counts'),FS.orderBy('countedAt','desc'),FS.limit(200)),'c',sn=>{S.counts=sn.docs.map(d=>Object.assign({id:d.id},d.data()))});
+  on(col('products'),'p',sn=>{S.products=sn.docs.filter(d=>SAFE_ID.test(d.id)).map(d=>cleanProduct(d.id,d.data()))});
+  on(FS.query(col('movements'),FS.orderBy('ts','desc'),FS.limit(MV_LIMIT)),'m',sn=>{S.movements=sn.docs.map(d=>cleanMove(d.id,d.data()))});
+  on(FS.query(col('counts'),FS.orderBy('countedAt','desc'),FS.limit(200)),'c',sn=>{S.counts=sn.docs.filter(d=>SAFE_ID.test(d.id)).map(d=>cleanCount(d.id,d.data()))});
 }
 function enterShop(id){shopId=id;L.shopId=id;L.uid=user.uid;if(S.settings.user==='ฉัน'&&user.displayName)S.settings.user=user.displayName;save();
   const pv=$('#view');if(pv)pv.innerHTML='';   // ล้างหน้าจอเดิม ไม่ให้เห็นข้อมูลของร้าน/บัญชีก่อนหน้า
