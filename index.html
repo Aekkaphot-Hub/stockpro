@@ -993,7 +993,7 @@ async function pkCam(){
   }catch(e){if(tk===PK.token)pkErr(e.name==='NotAllowedError'?'ยังไม่ได้อนุญาตให้ใช้กล้อง กรุณาอนุญาตในการตั้งค่าเบราว์เซอร์ แล้วเปิดเมนูนี้ใหม่':e.name==='NotFoundError'?'ไม่พบกล้องในเครื่องนี้':'เปิดกล้องไม่ได้: '+e.message)}
 }
 function packLeave(){if(PK.rec)pkStop('leave');PK.token++;clearTimeout(PK.scanT);cancelAnimationFrame(PK.raf);pkTracksStop();if(PK.wake){PK.wake.release().catch(()=>{});PK.wake=null}}
-document.addEventListener('visibilitychange',()=>{if(tab!=='pack'||!ready)return;if(document.hidden)packLeave();else if($('#pkroot'))pkCam()});
+document.addEventListener('visibilitychange',()=>{if(tab!=='pack'||!ready)return;if(document.hidden)packLeave();else if($('#pkroot')&&!PK.viewing)pkCam()});
 function pkTick(tk){if(tk!==PK.token)return;(async()=>{let l=[];const t0=performance.now();
   if(PK.dec&&PK.video&&PK.video.videoWidth&&!(PK.rec&&PK.rec.ending)){try{l=await PK.dec(PK.video)}catch(e){}}
   if(tk!==PK.token)return;pkSeen(l);pkUI();
@@ -1019,6 +1019,7 @@ function pkText(code){code=(code||'').trim();if(!code)return false;const r=PK.re
   if(r){if(r.ending)return false;if(r.m.codes.includes(code)){if(Date.now()-r.m.startedAt<1500)return false;pkStop('scan');return true}
     beep(false);toast('กำลังอัดเลข '+r.m.code+' อยู่','err');return false}
   if(!/^[A-Za-z0-9_-]{4,40}$/.test(code)){beep(false);toast('เลขพัสดุไม่ถูกต้อง','err');return false}
+  if(PK.viewing){toast('ปิดหน้าดูวิดีโอก่อน กล้องจะกลับมาทำงาน','err');return false}
   if(!PK.stream||!PK.video||!PK.video.videoWidth){toast('กล้องยังไม่พร้อม','err');return false}
   PK.block=null;pkStart({v:code,f:'manual'},[{v:code,f:'manual'}]);return true}
 function pkThumb(){try{const v=PK.video,k=160/v.videoWidth,c=document.createElement('canvas');c.width=160;c.height=Math.round(v.videoHeight*k);c.getContext('2d').drawImage(v,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.6)}catch(e){return ''}}
@@ -1056,7 +1057,7 @@ function pkUI(){const st=$('#pkstat');if(!st)return;const r=PK.rec,cam=$('#pkcam
   const o=PK.other&&Date.now()-PK.otherT<2500?` · พบเลขอื่น ${PK.other} (ไม่หยุด)`:'';
   st.textContent=`● อัด ${fmtDur(Date.now()-r.m.startedAt)} · ${r.m.code} — ${r.armed?'แพคเสร็จแล้วนำใบปะหน้าเดิมเข้ากล้องเพื่อหยุด':'เอาใบปะหน้าออกจากกล้องแล้วแพคได้เลย'}${o}`}
 function vPack(){
-  if($('#pkroot')){if(!PK.stream&&!document.hidden)pkCam();return}
+  if($('#pkroot')){if(!PK.stream&&!document.hidden&&!PK.viewing)pkCam();return}
   $('#view').innerHTML=`<div id="pkroot"><h2>${ic('video',26)}อัดวิดีโอแพคพัสดุ</h2>
   <div class="pkcam" id="pkcam"><video id="pkv" playsinline muted autoplay></video><canvas id="pkc"></canvas><div class="pkframe"></div><div class="pkstat" id="pkstat"></div>
     <button class="iconbtn pkflip" id="pkflip" aria-label="สลับกล้อง">${ic('flip')}</button><div class="pkerr" id="pkerr"></div></div>
@@ -1108,8 +1109,13 @@ async function pkList(){const el=$('#pkl');if(!el)return;let all=[];try{all=awai
   el.innerHTML=html+'</div>'+(l.length>show.length?`<div class="hint" style="text-align:center;margin:12px">แสดงล่าสุด ${show.length} จาก ${l.length} วิดีโอ ใช้ช่องค้นหาเพื่อดูรายการอื่น</div>`:'');
   el.querySelectorAll('[data-v]').forEach(e=>e.onclick=()=>pkPlay(e.dataset.v));
 }
-async function pkPlay(id){const m=PK.metas.find(x=>x.id===id);if(!m)return;let b;try{b=await vBlob(m)}catch(e){return toast('เปิดวิดีโอไม่ได้','err')}
-  if(!b.size)return toast('ไม่พบไฟล์วิดีโอ','err');
+async function pkPlay(id){const m=PK.metas.find(x=>x.id===id);if(!m||PK.viewing)return;
+  if(PK.rec)return toast('หยุดอัดก่อนจึงจะเปิดดูวิดีโอได้','err');
+  // ปิดกล้องระหว่างดูวิดีโอ (ไม่สแกน/ไม่อัดซ้อน และประหยัดแบตเตอรี่) แล้วเปิดกล้องกลับเมื่อปิดหน้าดู
+  PK.viewing=true;packLeave();pkErr('กล้องหยุดชั่วคราวระหว่างดูวิดีโอ');
+  const resume=()=>{PK.viewing=false;if(tab==='pack'&&$('#pkroot')&&!document.hidden&&!PK.stream)pkCam()};
+  let b;try{b=await vBlob(m)}catch(e){resume();return toast('เปิดวิดีโอไม่ได้','err')}
+  if(!b.size){resume();return toast('ไม่พบไฟล์วิดีโอ','err')}
   const url=URL.createObjectURL(b),ext=b.type.includes('mp4')?'mp4':'webm',s=new Date(m.startedAt),name=`${String(m.code).replace(/[^\w-]/g,'_')}_${ymd(s)}_${pad(s.getHours())}${pad(s.getMinutes())}${pad(s.getSeconds())}.${ext}`;
   const row=(k,v)=>`<tr><td class="muted">${k}</td><td class="n"><b>${esc(v)}</b></td></tr>`,others=(m.codes||[]).filter(c=>c!==m.code);
   const why={hidden:'ออกจากแอพระหว่างอัด',leave:'เปลี่ยนเมนูระหว่างอัด',full:'พื้นที่เต็ม',error:'กล้องขัดข้อง'}[m.stopReason]||(m.recovered?'แอพปิดระหว่างอัด (กู้คืนส่วนที่อัดได้)':'');
@@ -1117,7 +1123,7 @@ async function pkPlay(id){const m=PK.metas.find(x=>x.id===id);if(!m)return;let b
   const delAt=(m.endedAt||m.startedAt)+PK_KEEP,canDel=Date.now()>=delAt,left=Math.ceil((delAt-Date.now())/864e5);
   const ov=modal(`<h3>${ic('video')}${esc(m.code)}${closeBtn}</h3><video src="${url}" controls playsinline style="width:100%;max-height:52vh;background:#000;border-radius:14px;margin-top:10px"></video>
     <table style="margin-top:8px">${row('วันที่',dLabel(ymd(s)))}${row('เริ่มบันทึก',fmtClock(m.startedAt))}${row('บันทึกเสร็จ',fmtClock(m.endedAt))}${row('ความยาว',fmtDur(m.endedAt-m.startedAt))}${row('ขนาดไฟล์',fmtSize(b.size))}${m.user?row('ผู้อัด',m.user):''}${others.length?row('รหัสอื่นบนใบปะหน้า',others.join(', ')):''}${why?row('หยุดเพราะ',why):''}${canDel?'':row('ลบได้ตั้งแต่',fmtDT(delAt))}</table>
-    <div class="row" style="margin-top:14px">${canDel?`<button class="btn red" id="pvd" style="padding:12px 14px;flex:none" aria-label="ลบวิดีโอ">${ic('trash')}</button>`:`<button class="btn ghost" disabled style="padding:12px 10px;flex:none;font-size:13px;color:var(--mu);cursor:default" aria-label="ยังลบไม่ได้ อีก ${left} วัน">${ic('trash')}อีก ${left} วัน</button>`}${canShare?`<button class="btn ghost" id="pvs" style="flex:1">${ic('send')}แชร์</button>`:''}<button class="btn" id="pvl" style="flex:1">${ic('dl')}บันทึกไฟล์</button></div>`,()=>URL.revokeObjectURL(url));
+    <div class="row" style="margin-top:14px">${canDel?`<button class="btn red" id="pvd" style="padding:12px 14px;flex:none" aria-label="ลบวิดีโอ">${ic('trash')}</button>`:`<button class="btn ghost" disabled style="padding:12px 10px;flex:none;font-size:13px;color:var(--mu);cursor:default" aria-label="ยังลบไม่ได้ อีก ${left} วัน">${ic('trash')}อีก ${left} วัน</button>`}${canShare?`<button class="btn ghost" id="pvs" style="flex:1">${ic('send')}แชร์</button>`:''}<button class="btn" id="pvl" style="flex:1">${ic('dl')}บันทึกไฟล์</button></div>`,()=>{URL.revokeObjectURL(url);resume()});
   ov.querySelector('#pvl').onclick=()=>{const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove()};
   const sh=ov.querySelector('#pvs');if(sh)sh.onclick=()=>navigator.share({files:[new File([b],name,{type:b.type})],title:m.code}).catch(()=>{});
   if(canDel)ov.querySelector('#pvd').onclick=()=>confirmBox(`ลบวิดีโอ <b>${esc(m.code)}</b> ออกจากเครื่องนี้ถาวร? กู้คืนไม่ได้`,async()=>{closeModal(ov);try{await vDelete(m.id);toast('ลบวิดีโอแล้ว')}catch(e){toast('ลบไม่สำเร็จ','err')}pkList()},'ลบถาวร');
