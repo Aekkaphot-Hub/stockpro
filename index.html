@@ -1067,7 +1067,7 @@ function pkSeen(list){
     }else{if(!r.armed&&now-r.lastSeen>=PK_GONE)r.armed=true;if(vals[0]){PK.other=vals[0];PK.otherT=now}}
     return}
   if(PK.block){if(now-PK.block.at<2000)return;
-    if(vals.some(v=>PK.block.codes.includes(v))){PK.block.last=now;return}
+    if(vals.length&&(PK.block.any||vals.some(v=>PK.block.codes.includes(v)))){PK.block.last=now;return}
     if(now-PK.block.last>3000)PK.block=null}
   // เริ่มอัดทันทีที่อ่านได้ครั้งแรก (Code128/93, QR, DataMatrix มีตัวตรวจสอบความถูกต้องในตัว) — Code39 ไม่มี จึงต้องอ่านตรงกัน 2 ครั้ง
   for(const x of hits){if(x.f!=='code_39'||(PK.cand[x.v]&&now-PK.cand[x.v]<1500)){PK.cand={};return pkStart(hits.slice().sort((a,b)=>pkScore(b)-pkScore(a))[0],hits)}PK.cand[x.v]=now}
@@ -1109,7 +1109,7 @@ function pkStamp(x,W,H,r){   // ฝังเลขพัสดุ วันท�
   const bw=Math.min(W-p*2,Math.max(...lines.map(l=>x.measureText(l).width))+p*2),bh=lines.length*lh+p*1.2,by=H-bh-p;
   x.fillStyle='rgba(0,0,0,.65)';x.fillRect(p,by,bw,bh);lines.forEach((l,i)=>{x.fillStyle=i?'#fff':'#ffa040';x.fillText(l,p*2,by+p*.6+i*lh)})}
 function pkUI(){const st=$('#pkstat');if(!st)return;const r=PK.rec,cam=$('#pkcam'),b=$('#pkstop'),f=$('#pkflip');cam.classList.toggle('rec',!!r);b.style.display=r&&!r.ending?'flex':'none';f.style.display=r?'none':'';
-  if(!r){st.textContent=PK.block&&Date.now()-PK.block.at<2000?'บันทึกแล้ว เตรียมใบปะหน้าถัดไป':'เล็งใบปะหน้าเข้ากล้องเพื่อเริ่มอัด';return}
+  if(!r){st.textContent=PK.block&&PK.block.any?'ค้นหาแล้ว — เอาใบปะหน้าออกจากกล้องก่อน จึงจะเริ่มอัดได้':PK.block&&Date.now()-PK.block.at<2000?'บันทึกแล้ว เตรียมใบปะหน้าถัดไป':'เล็งใบปะหน้าเข้ากล้องเพื่อเริ่มอัด';return}
   if(r.ending){st.textContent='กำลังบันทึกวิดีโอ…';return}
   const o=PK.other&&Date.now()-PK.otherT<2500?` · พบเลขอื่น ${PK.other} (ไม่หยุด)`:'';
   st.textContent=`● อัด ${fmtDur(Date.now()-r.m.startedAt)} · ${r.m.code} — ${r.armed?'แพคเสร็จแล้วนำใบปะหน้าเดิมเข้ากล้องเพื่อหยุด':'เอาใบปะหน้าออกจากกล้องแล้วแพคได้เลย'}${o}`}
@@ -1137,7 +1137,8 @@ function vPack(){
   // กดช่องค้นหา → หยุดกล้อง / ออกจากช่อง → เปิดกล้องกลับ (หน่วงนิดหน่อย เผื่อแตะคลิปต่อจากช่องค้นหาเลย)
   $('#pkq').onfocus=()=>pkHold('search');
   $('#pkq').onblur=()=>{clearTimeout(PK.relT);PK.relT=setTimeout(()=>{if(document.activeElement!==$('#pkq'))pkRelease('search')},350)};
-  $('#pkqs').onclick=()=>{if(PK.rec)return toast('หยุดอัดก่อนจึงจะสแกนค้นหาได้','err');packLeave();scan(c=>{PK.q=c;$('#pkq').value=c;pkList()},{onClose:()=>{if(tab==='pack')pkCam()}})};
+  // สแกนค้นหาเสร็จ ใบปะหน้ามักยังอยู่หน้ากล้อง → ห้ามเริ่มอัดจนกว่าจะไม่เห็นบาร์โค้ด/QR ใดๆ 3 วินาที
+  $('#pkqs').onclick=()=>{if(PK.rec)return toast('หยุดอัดก่อนจึงจะสแกนค้นหาได้','err');packLeave();scan(c=>{PK.q=c;$('#pkq').value=c;pkList();const t=Date.now();PK.cand={};PK.block={codes:[c],any:1,last:t,at:t}},{onClose:()=>{if(tab==='pack')pkCam()}})};
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});   // ขอไม่ให้เบราว์เซอร์ลบวิดีโอเองเมื่อพื้นที่ใกล้เต็ม
   pkUI();pkCam();pkRecover().then(pkList,pkList);
 }
