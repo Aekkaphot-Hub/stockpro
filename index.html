@@ -209,6 +209,13 @@ td.n,th.n{text-align:right}
 .pkstat{position:absolute;left:8px;right:60px;top:8px;background:#000c;border-radius:12px;padding:7px 11px;font-size:13px;font-weight:700;line-height:1.35}
 .pkcam.rec .pkstat{color:#fff;background:#b3121dd9}
 .pkflip{position:absolute;top:8px;right:8px;background:#000c}
+.pksnd{position:absolute;top:58px;right:8px;background:#000c}
+.sndrow{display:flex;align-items:center;gap:6px;padding:6px 6px 6px 4px;border-radius:14px;background:var(--bg2);border:1px solid var(--line)}
+.sndrow.on{border-color:var(--or);background:#ff7a0018}
+.sndrow .tab{flex:none;padding:7px 10px;font-size:13px}
+.sndpick{flex:1;min-width:0;display:flex;align-items:center;gap:10px;text-align:left;padding:6px 8px;font-size:14px;background:none;border:0;color:var(--tx)}
+.snddot{width:18px;height:18px;border-radius:50%;border:2px solid var(--mu);flex:none}
+.sndrow.on .snddot{border-color:var(--or);background:radial-gradient(var(--or) 45%,transparent 50%)}
 .pkerr{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:20px;background:#000e;font-size:14px}
 .pkth{width:64px;height:48px;object-fit:cover;border-radius:9px;background:#000;flex:none}
 .pkfil{display:flex;gap:8px;align-items:center;margin-bottom:10px}
@@ -257,6 +264,7 @@ alert:'<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17
 dl:'<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',ul:'<path d="M12 15V3M7 8l5-5 5 5M5 21h14"/>',
 cam:'<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
 clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+sound:'<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>',play:'<path d="M7 4l13 8-13 8z"/>',
 l:'<path d="M15 18l-6-6 6-6"/>',chev:'<path d="M6 9l6 6 6-6"/>',video:'<path d="M23 7l-7 5 7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/>',flip:'<path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/>',r:'<path d="M9 18l6-6-6-6"/>',
 fire:'<path d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-4 3-7 1 1 2 2 3 2 0-3-1-5 0-7z"/>',
 coin:'<circle cx="12" cy="12" r="9"/><path d="M14.5 9a2.5 2 0 0 0-2.5-1.5c-1.5 0-2.5.8-2.5 1.8s1 1.5 2.5 1.7 2.5.7 2.5 1.8-1 1.7-2.5 1.7A2.5 2 0 0 1 9.5 15M12 6v1.5M12 16.5V18"/>',
@@ -483,9 +491,54 @@ function moveDlg(mode){
 /* ============ 2b) รับเข้า/ตัดออก หลายรายการ (สแกนต่อเนื่อง) ============ */
 const fine=matchMedia('(pointer:fine)').matches;   // มีเมาส์/คีย์บอร์ด → โฟกัสช่องสแกนอัตโนมัติ (มือถือจะไม่เด้งคีย์บอร์ด)
 let actx=null;
-function beep(ok){try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();const o=actx.createOscillator(),g=actx.createGain();
+const actxGet=()=>{actx=actx||new (window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume().catch(()=>{});return actx};
+function beep(ok){try{actxGet();const o=actx.createOscillator(),g=actx.createGain();
   o.type=ok?'sine':'square';o.frequency.value=ok?1250:220;g.gain.value=.08;o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+(ok?.08:.3))}catch(e){}
   if(navigator.vibrate)navigator.vibrate(ok?40:[80,60,80])}
+
+/* ---- เสียงแจ้งเตือนตอนเริ่ม/หยุดอัดวิดีโอแพคพัสดุ (สังเคราะห์เสียงในเครื่อง ไม่ต้องโหลดไฟล์ ใช้ออฟไลน์ได้) ----
+   โน้ต: f=ความถี่(Hz) f2=ไล่เสียงไปถึง d=ยาว(วินาที) w=รูปคลื่น v=ความดัง noise=เสียงซ่า gap=เว้นก่อนโน้ตถัดไป
+   เสียงหยุดอัด = เล่นย้อนกลับ (โน้ตเดียวจะเล่น 2 ครั้ง) หรือกำหนดเองใน z */
+const SND=[
+  {n:'บี๊บสั้น (เสียงเดิม)',a:[{f:1250,d:.09}]},
+  {n:'ติ๊ง-ด่อง',a:[{f:660,d:.2},{f:880,d:.4}]},
+  {n:'เครื่องสแกนร้านค้า',a:[{f:2600,d:.08,w:'square'}]},
+  {n:'ระฆังแก้ว',a:[{f:1568,d:.9,w:'triangle'}],z:[{f:1568,d:.35,w:'triangle',gap:.02},{f:1175,d:.8,w:'triangle'}]},
+  {n:'ป๊อป',a:[{f:300,f2:1100,d:.09}]},
+  {n:'สามโน้ตขึ้น',a:[{f:523,d:.11},{f:659,d:.11},{f:784,d:.25}]},
+  {n:'เหรียญ',a:[{f:988,d:.07,w:'square',gap:0},{f:1319,d:.4,w:'square'}]},
+  {n:'ชัตเตอร์กล้อง',a:[{noise:1,d:.03,gap:.05},{noise:1,d:.08}],z:[{noise:1,d:.08,gap:.12},{noise:1,d:.03,gap:.05},{noise:1,d:.08}]},
+  {n:'ปี๊ปเตือน 2 ครั้ง',a:[{f:1000,d:.12,w:'sawtooth',gap:.07},{f:1000,d:.12,w:'sawtooth'}],z:[{f:800,d:.1,w:'sawtooth',gap:.06},{f:800,d:.1,w:'sawtooth',gap:.06},{f:800,d:.1,w:'sawtooth'}]},
+  {n:'เลเซอร์',a:[{f:1600,f2:300,d:.2,w:'square'}]}
+];
+const SND_VOL={low:.12,mid:.3,high:.7},SND_VN={low:'เบา',mid:'กลาง',high:'ดัง'};
+function sndCfg(){let c={};try{c=JSON.parse(localStorage.getItem('stockpro_snd')||'{}')||{}}catch(e){}
+  return {i:SND[c.i]?c.i:0,v:SND_VOL[c.v]?c.v:'mid',on:c.on!==false}}
+function sndSave(c){try{localStorage.setItem('stockpro_snd',JSON.stringify(c))}catch(e){}}
+function sndNotes(p,stop){if(!stop)return p.a;if(p.z)return p.z;
+  const r=p.a.slice().reverse().map((n,k,l)=>Object.assign({},n,n.f2?{f:n.f2,f2:n.f}:{},{gap:k<l.length-1?(l[k+1].gap??.05):.05}));
+  return r.length===1&&!r[0].f2?[Object.assign({},r[0],{gap:.07}),r[0]]:r}
+function sndPlay(i,stop,vol){try{const a=actxGet(),p=SND[i]||SND[0],out=a.createGain();let t=a.currentTime+.03;out.gain.value=vol;out.connect(a.destination);
+  for(const n of sndNotes(p,stop)){const d=n.d,v=n.v||(n.noise?.8:n.w==='square'||n.w==='sawtooth'?.6:1);let s;
+    if(n.noise){const b=a.createBuffer(1,Math.ceil(a.sampleRate*d),a.sampleRate),ch=b.getChannelData(0);for(let k=0;k<ch.length;k++)ch[k]=Math.random()*2-1;s=a.createBufferSource();s.buffer=b}
+    else{s=a.createOscillator();s.type=n.w||'sine';s.frequency.setValueAtTime(n.f,t);if(n.f2)s.frequency.exponentialRampToValueAtTime(n.f2,t+d)}
+    const g=a.createGain();g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(v,t+.006);g.gain.exponentialRampToValueAtTime(.0001,t+d);
+    s.connect(g);g.connect(out);s.start(t);s.stop(t+d+.02);t+=d+(n.gap??.05)}
+}catch(e){}}
+function pkBeep(stop){const c=sndCfg();if(c.on)sndPlay(c.i,stop,SND_VOL[c.v]);if(navigator.vibrate)navigator.vibrate(stop?[40,60,40]:40)}
+function sndDlg(){let c=sndCfg();
+  const ov=modal(`<h3>${ic('sound')}เสียงแจ้งเตือนตอนอัด${closeBtn}</h3><div id="sndb"></div>`),box=ov.querySelector('#sndb');
+  const draw=()=>{box.innerHTML=`<p class="hint" style="margin:6px 2px 12px">แตะชื่อเสียงเพื่อเลือกและฟัง · ปุ่ม ▶ ฟังเสียงตอน <b>เริ่มอัด</b> / <b>หยุดอัด</b> (ใช้เฉพาะเครื่องนี้)</p>
+    <div class="row" style="gap:8px;margin-bottom:8px"><b style="width:64px;font-size:14px">เสียง</b><button class="tab${c.on?' on':''}" data-on="1">${ic('sound')}เปิด</button><button class="tab${c.on?'':' on'}" data-on="0">ปิด</button></div>
+    <div class="row" style="gap:8px;margin-bottom:12px"><b style="width:64px;font-size:14px">ความดัง</b>${Object.keys(SND_VOL).map(k=>`<button class="tab${c.v===k?' on':''}" data-vol="${k}">${SND_VN[k]}</button>`).join('')}</div>
+    <div style="display:grid;gap:8px;max-height:52vh;overflow:auto">${SND.map((p,k)=>`<div class="sndrow${c.i===k?' on':''}"><button class="sndpick" data-i="${k}"><span class="snddot"></span><b>${k+1}. ${esc(p.n)}</b></button>
+      <button class="tab" data-p="${k}" aria-label="ฟังเสียงเริ่มอัด ${esc(p.n)}">${ic('play',14)}เริ่ม</button><button class="tab" data-p="${k}" data-s="1" aria-label="ฟังเสียงหยุดอัด ${esc(p.n)}">${ic('play',14)}หยุด</button></div>`).join('')}</div>`;
+    const set=x=>{c=Object.assign(c,x);sndSave(c);draw()};
+    box.querySelectorAll('[data-on]').forEach(b=>b.onclick=()=>set({on:b.dataset.on==='1'}));
+    box.querySelectorAll('[data-vol]').forEach(b=>b.onclick=()=>{set({v:b.dataset.vol});sndPlay(c.i,false,SND_VOL[c.v])});
+    box.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{set({i:+b.dataset.i});sndPlay(c.i,false,SND_VOL[c.v])});
+    box.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>sndPlay(+b.dataset.p,!!b.dataset.s,SND_VOL[c.v]))};
+  draw()}
 function bulkStart(mode){if(!canEdit())return needEdit();S.bulk={mode,items:[],ri:0,step:1};save();render()}
 function bulkCancel(){const done=()=>{S.bulk=null;save();render()};if(!S.bulk.items.length)return done();confirmBox(`ยกเลิกรายการที่สแกนไว้ ${S.bulk.items.length} รายการ?`,done,'ยกเลิกทั้งหมด')}
 function bulkAdd(pid,n){const b=S.bulk;let it=b.items.find(i=>i.id===pid);
@@ -1037,9 +1090,9 @@ function pkStart(hit,hits){
   mr.ondataavailable=e=>{if(!e.data||!e.data.size)return;const s=r.seq++,d=e.data;m.size+=d.size;m.lastAt=Date.now();
     r.writes=r.writes.then(()=>vtx(['chunks','meta'],'readwrite',t=>{t.objectStore('chunks').put(d,[m.id,s]);t.objectStore('meta').put(m)})).catch(err=>{console.warn(err);if(!r.failed){r.failed=true;toast('พื้นที่เก็บข้อมูลเต็ม หยุดอัดแล้ว','err');pkStop('full')}})};
   mr.onstop=()=>pkDone(r);mr.onerror=()=>pkStop('error');
-  vMetaPut(m).catch(()=>{});mr.start(2000);beep(true);pkUI();
+  vMetaPut(m).catch(()=>{});mr.start(2000);pkBeep(false);pkUI();
 }
-function pkStop(why){const r=PK.rec;if(!r||r.ending)return;r.ending=Date.now();r.m.endedAt=r.ending;r.m.stopReason=why||'';if(why==='scan'||why==='manual')beep(true);pkUI();
+function pkStop(why){const r=PK.rec;if(!r||r.ending)return;r.ending=Date.now();r.m.endedAt=r.ending;r.m.stopReason=why||'';if(why==='scan'||why==='manual')pkBeep(true);pkUI();
   const fin=()=>{try{if(r.mr.state!=='inactive')r.mr.stop();else pkDone(r)}catch(e){pkDone(r)}};
   if(why==='scan'||why==='manual')setTimeout(fin,800);else fin()}   // ค้างภาพ 0.8 วินาทีให้เห็นเวลา "เสร็จ" ในวิดีโอ
 async function pkDone(r){if(r.done)return;r.done=true;try{await r.writes}catch(e){}
@@ -1064,7 +1117,7 @@ function vPack(){
   if($('#pkroot')){if(!PK.stream&&!document.hidden&&!PK.hold.size)pkCam();return}
   $('#view').innerHTML=`<div id="pkroot"><h2>${ic('video',26)}อัดวิดีโอแพคพัสดุ</h2>
   <div class="pkcam" id="pkcam"><video id="pkv" playsinline muted autoplay></video><canvas id="pkc"></canvas><div class="pkframe"></div><div class="pkstat" id="pkstat"></div>
-    <button class="iconbtn pkflip" id="pkflip" aria-label="สลับกล้อง">${ic('flip')}</button><div class="pkerr" id="pkerr"></div></div>
+    <button class="iconbtn pkflip" id="pkflip" aria-label="สลับกล้อง">${ic('flip')}</button><button class="iconbtn pksnd" id="pksnd" aria-label="เลือกเสียงแจ้งเตือนตอนอัด">${ic('sound')}</button><div class="pkerr" id="pkerr"></div></div>
   <button class="btn red block" id="pkstop" style="display:none;margin-top:10px;padding:15px">${ic('check')}หยุดอัดและบันทึก</button>
   <div class="row" style="margin-top:10px"><input id="pkm" placeholder="พิมพ์เลขพัสดุ / ยิงเครื่องสแกน" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button class="btn" id="pkmb" style="flex:none">ตกลง</button></div>
   <div class="row" style="margin:20px 2px 8px"><b style="font-size:17px">วิดีโอในเครื่องนี้</b><span class="sp"></span><span class="muted" id="pku" style="font-size:12px;text-align:right"></span></div>
@@ -1078,6 +1131,7 @@ function vPack(){
   const mi=$('#pkm'),send=()=>{if(pkText(mi.value))mi.value=''};
   $('#pkmb').onclick=send;mi.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();send()}};
   $('#pkstop').onclick=()=>pkStop('manual');
+  $('#pksnd').onclick=sndDlg;
   $('#pkflip').onclick=()=>{if(PK.rec)return;PK.facing=PK.facing==='environment'?'user':'environment';pkCam()};
   $('#pkq').oninput=e=>{PK.q=e.target.value;pkList()};
   // กดช่องค้นหา → หยุดกล้อง / ออกจากช่อง → เปิดกล้องกลับ (หน่วงนิดหน่อย เผื่อแตะคลิปต่อจากช่องค้นหาเลย)
